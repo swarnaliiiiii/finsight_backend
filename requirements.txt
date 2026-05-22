@@ -1,0 +1,55 @@
+# Web framework
+fastapi
+uvicorn[standard]
+pydantic-settings
+python-dotenv
+
+# Database
+sqlalchemy
+asyncpg
+psycopg2-binary
+
+# Background jobs + in-memory cache (no Redis/Celery — single-instance MVP)
+apscheduler
+cachetools
+
+# Auth
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt
+
+# LLM + agent framework
+langchain
+langchain-community
+langchain-google-genai
+langchain-groq
+langgraph
+
+# Search (agent tool)
+tavily-python
+
+# Global market data
+yfinance
+
+# Indian market data
+nsepython
+jugaad-data
+mftool
+
+# Macro data
+fredapi
+wbdata
+
+# News & sentiment
+finnhub-python
+newsapi-python
+
+# HTTP & scraping
+httpx
+feedparser
+beautifulsoup4
+lxml
+
+# Data handling
+pandas
+numpy
