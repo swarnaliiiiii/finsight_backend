@@ -64,20 +64,44 @@ INTENT_PLANS: dict[Intent, list[PlanStep]] = {
         A("assembly"),
     ],
 
-    # "What's the latest news on X?" -> web search + scenario callout + pack.
-    # Education agent surfaces the headlines in a beginner-safe frame; the
-    # Scenario & Policy Impact agent (step 9) will add sentiment later.
+    # "What's the latest news on X?" -> web search + scenario context +
+    # scenario_policy agent for sentiment / tilts + pack.
     Intent.CURRENT_NEWS: [
         L("search.web"),
         L("scenario.snapshot"),
-        A("education"),
+        A("scenario_policy"),
         A("assembly"),
     ],
 
-    # Still stubs. Assembly runs so the response shape stays uniform.
-    Intent.COMPARE_INSTRUMENTS: [A("not_implemented"), A("assembly")],
-    Intent.HISTORICAL_BEHAVIOR: [A("not_implemented"), A("assembly")],
-    Intent.DAILY_BRIEF: [A("not_implemented"), A("assembly")],
+    # "How did gold ETFs behave during COVID?" -> match era, fetch price
+    # history, compute window stats, narrate, pack.
+    Intent.HISTORICAL_BEHAVIOR: [
+        L("historical.era_performance"),
+        L("scenario.snapshot"),
+        A("historical"),
+        A("assembly"),
+    ],
+
+    # "Gold ETF vs silver ETF" / "Compare large-cap funds" ->
+    # consensus + enrich + score + compare + LLM narrative + pack.
+    Intent.COMPARE_INSTRUMENTS: [
+        L("recommender.consensus"),
+        L("recommender.enrich"),
+        L("recommender.score"),
+        L("recommender.compare"),
+        L("scenario.snapshot"),
+        A("recommendation"),
+        A("assembly"),
+    ],
+
+    # Daily Brief: gather signals + LLM polish + pack.
+    Intent.DAILY_BRIEF: [
+        L("brief.gather"),
+        L("scenario.snapshot"),
+        A("brief"),
+        A("assembly"),
+    ],
+
     Intent.UNKNOWN: [A("not_implemented"), A("assembly")],
 }
 

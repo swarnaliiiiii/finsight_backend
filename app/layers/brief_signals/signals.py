@@ -5,30 +5,16 @@ agent will score, rank, and explain.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 from app.layers.market_data import get_source
 from app.layers.market_data.base import MacroSource, NewsSource, PriceSource
-from app.schemas import BriefSeverity, BriefSourceType, InstrumentType
+from app.schemas import (BriefSeverity, BriefSourceType, InstrumentType,
+                          Signal)
 
 _COUNTRY_INDEX_TICKER: dict[str, str] = {
     "IN": "^NSEI",
     "US": "^GSPC",
     "UK": "^FTSE",
 }
-
-
-@dataclass
-class Signal:
-    """Internal candidate signal before LLM polishing."""
-    title: str
-    raw_data: str
-    source_type: BriefSourceType
-    affected_instruments: list[InstrumentType] = field(default_factory=list)
-    severity: BriefSeverity = BriefSeverity.INFO
-    source_links: list[str] = field(default_factory=list)
-    learn_more_terms: list[str] = field(default_factory=list)
-    importance_score: float = 0.5
 
 
 async def market_pulse(country: str) -> Signal | None:

@@ -6,6 +6,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from app.layers.market_data.base import BaseSource
+from app.layers.market_data.funds.amfi_source import AMFISource
 from app.layers.market_data.funds.mftool_source import MftoolSource
 from app.layers.market_data.macro.fred_source import FREDSource
 from app.layers.market_data.macro.rbi_source import RBISource
@@ -36,6 +37,7 @@ def _registry() -> dict[str, BaseSource]:
         FREDSource(), RBISource(), WorldBankSource(),
         # funds
         MftoolSource(),
+        AMFISource(),
     ]
     return {src.name: src for src in instances}
 

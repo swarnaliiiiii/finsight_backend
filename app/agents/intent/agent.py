@@ -22,28 +22,31 @@ from app.schemas import AgentInput, AgentOutput, Intent
 # --- rule-based pre-pass ---------------------------------------------------
 
 _RULES: list[tuple[Intent, re.Pattern]] = [
-    # QUICK_FACT must precede EXPLAIN_TERM: "what's the repo rate today" should
-    # be a quick-fact lookup, not a glossary explanation. A query qualifies if
-    # it mentions BOTH a time-word and a fact-term, in either order.
+    # Order matters: more specific patterns first, generic question prefixes
+    # ("what is", "explain") last. Each pattern is tested via search; the
+    # first match wins.
+    (Intent.DAILY_BRIEF, re.compile(
+        r"\b(daily\s+brief|morning\s+brief|today's\s+brief)\b", re.I)),
+    # CURRENT_NEWS before QUICK_FACT — "latest news" should go to news, not
+    # to a single-fact lookup.
+    (Intent.CURRENT_NEWS, re.compile(
+        r"\b(news|happening|update|going\s+on)\b", re.I)),
+    # QUICK_FACT: requires BOTH a time-word AND a fact-term in either order.
     (Intent.QUICK_FACT, re.compile(
         r"(?=.*\b(today|current|right\s+now|currently|latest)\b)"
         r"(?=.*\b(repo\s+rate|interest\s+rate|inflation|cpi|"
         r"fed\s+funds|nifty|sensex|nav)\b)", re.I)),
+    (Intent.HISTORICAL_BEHAVIOR, re.compile(
+        r"\b(during|in\s+\d{4}|historical|history|past\s+\d+\s+years?)\b", re.I)),
+    (Intent.PROJECT_RETURNS, re.compile(
+        r"\b(if\s+i\s+invest|how\s+much\s+will|future\s+value|projection)\b", re.I)),
+    (Intent.RECOMMEND_INSTRUMENT, re.compile(
+        r"\b(recommend|suggest|which.*should\s+i|best\s+\w+\s+for)\b", re.I)),
+    (Intent.COMPARE_INSTRUMENTS, re.compile(
+        r"\b(vs\.?|versus|compare|better)\b", re.I)),
     (Intent.EXPLAIN_TERM, re.compile(
         r"^(what\s+is|what's|explain|tell\s+me\s+about|how\s+does|how\s+do|"
         r"how\s+to\s+start|what\s+are)\b", re.I)),
-    (Intent.COMPARE_INSTRUMENTS, re.compile(
-        r"\b(vs\.?|versus|compare|better|or)\b", re.I)),
-    (Intent.RECOMMEND_INSTRUMENT, re.compile(
-        r"\b(recommend|suggest|which.*should\s+i|best\s+\w+\s+for)\b", re.I)),
-    (Intent.PROJECT_RETURNS, re.compile(
-        r"\b(if\s+i\s+invest|how\s+much\s+will|future\s+value|projection)\b", re.I)),
-    (Intent.CURRENT_NEWS, re.compile(
-        r"\b(news|happening|latest|update)\b", re.I)),
-    (Intent.HISTORICAL_BEHAVIOR, re.compile(
-        r"\b(during|in\s+\d{4}|historical|history|past\s+\d+\s+years?)\b", re.I)),
-    (Intent.DAILY_BRIEF, re.compile(
-        r"\b(daily\s+brief|morning\s+brief|today's\s+brief)\b", re.I)),
 ]
 
 _VALID_INTENT_VALUES = {i.value for i in Intent}
@@ -72,9 +75,29 @@ _LLM_PROMPT = ChatPromptTemplate.from_messages([
      "- historical_behavior : asks about past performance or behaviour during an era\n"
      "- quick_fact : asks for a current data point (repo rate, NAV, etc.)\n"
      "- daily_brief : asks for the morning/daily brief\n"
-     "- unknown : none of the above"),
+     "- unknown : none of the above\n\n"
+     "User context (use as gentle prior, the QUERY still decides):\n{context}"),
     ("user", "{query}")
 ])
+
+
+def _summarise_context(input: AgentInput) -> str:
+    """Compact one-line context the LLM can use as a prior."""
+    bits: list[str] = []
+    u = input.user
+    if u.age is not None:
+        bits.append(f"age {u.age}")
+    if u.risk_tolerance is not None:
+        bits.append(f"risk {u.risk_tolerance.value}")
+    if u.goal:
+        bits.append(f"goal:{u.goal}")
+    if u.comprehension_level and u.comprehension_level != "beginner":
+        bits.append(f"level:{u.comprehension_level}")
+    readout = input.upstream.get("memory_readout")
+    if readout is not None and readout.recent_turns:
+        last = readout.recent_turns[0]
+        bits.append(f"last_turn:{last.intent.value}")
+    return "; ".join(bits) or "(no context)"
 
 
 def _llm() -> ChatGroq:
@@ -85,9 +108,9 @@ def _llm() -> ChatGroq:
     )
 
 
-async def _llm_classify(query: str) -> Intent:
+async def _llm_classify(query: str, context: str = "(no context)") -> Intent:
     chain = _LLM_PROMPT | _llm()
-    response = await chain.ainvoke({"query": query})
+    response = await chain.ainvoke({"query": query, "context": context})
     raw = response.content if hasattr(response, "content") else str(response)
     token = raw.strip().lower().strip(".\"'`")
     if token in _VALID_INTENT_VALUES:
@@ -109,8 +132,9 @@ async def run(input: AgentInput) -> AgentOutput:
             structured={"intent": rule_hit.value, "classified_by": "rules"},
         )
 
+    context = _summarise_context(input)
     try:
-        intent = await _llm_classify(input.query)
+        intent = await _llm_classify(input.query, context=context)
     except Exception as exc:  # network / key / model error -> fail safe
         return AgentOutput(
             structured={"intent": Intent.UNKNOWN.value,
@@ -119,5 +143,6 @@ async def run(input: AgentInput) -> AgentOutput:
         )
 
     return AgentOutput(
-        structured={"intent": intent.value, "classified_by": "llm"},
+        structured={"intent": intent.value, "classified_by": "llm",
+                     "context_used": context},
     )

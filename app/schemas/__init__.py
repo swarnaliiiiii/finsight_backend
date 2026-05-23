@@ -15,11 +15,14 @@ from app.schemas.assembly import (Block, CalloutBlock, ChartBlock,
                                      CitationsBlock, ListBlock, NarrativeBlock,
                                      ResponseEnvelope, TableBlock, VideoBlock)
 from app.schemas.brief import (BriefItem, BriefSeverity, BriefSourceType,
-                                 DailyBrief)
+                                 DailyBrief, Signal)
 from app.schemas.documents import Document
+from app.schemas.historical import Era, EraPerformance, HistoricalReport
 from app.schemas.instruments import (AffectingEntity, Comparison, Explanation,
                                        InstrumentCandidate, Recommendation)
 from app.schemas.intent import Intent
+from app.schemas.memory import (MemoryActivity, MemoryProfile, MemoryReadout,
+                                   MemorySessionTurn)
 from app.schemas.projection import (AllocationPlan, AllocationSlice,
                                        Projection, ProjectionRange)
 from app.schemas.scenario import (CurrentScenario, Event, EventType,
@@ -43,14 +46,21 @@ __all__ = [
     "CurrentScenario",
     "DailyBrief",
     "Document",
+    "Era",
+    "EraPerformance",
     "Event",
     "EventType",
     "Explanation",
+    "HistoricalReport",
     "InstrumentCandidate",
     "InstrumentType",
     "Intent",
     "ListBlock",
     "MarketRegime",
+    "MemoryActivity",
+    "MemoryProfile",
+    "MemoryReadout",
+    "MemorySessionTurn",
     "NarrativeBlock",
     "PolicyState",
     "Projection",
@@ -58,6 +68,7 @@ __all__ = [
     "Recommendation",
     "ResponseEnvelope",
     "RiskLevel",
+    "Signal",
     "TableBlock",
     "UserContext",
     "VideoBlock",

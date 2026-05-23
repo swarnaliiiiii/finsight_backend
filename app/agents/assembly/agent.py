@@ -31,6 +31,14 @@ async def run(input: AgentInput) -> AgentOutput:
     if callout is not None:
         blocks.append(callout)
 
+    # If scenario_policy didn't run this turn but the cached snapshot already
+    # carries tilts (from the refresher's enrichment), surface them.
+    scenario_policy_ran = "scenario_policy" in upstream_outputs
+    if not scenario_policy_ran:
+        snap_tilts_block = _snapshot_tilts_block(input.scenario)
+        if snap_tilts_block is not None:
+            blocks.append(snap_tilts_block)
+
     # Block per upstream agent. Order: insertion order of the dict (which
     # equals plan order, since runner appends in step order).
     for name, out in upstream_outputs.items():
@@ -60,6 +68,23 @@ async def run(input: AgentInput) -> AgentOutput:
 
 
 # --- helpers --------------------------------------------------------------
+
+def _snapshot_tilts_block(scenario: CurrentScenario | None
+                            ) -> TableBlock | None:
+    if scenario is None or not scenario.instrument_tilts:
+        return None
+    non_neutral = {k: v for k, v in scenario.instrument_tilts.items()
+                    if v != "neutral"}
+    if not non_neutral:
+        return None
+    return TableBlock(
+        title="Backdrop tilts (refreshed snapshot)",
+        columns=["Instrument", "Tilt"],
+        rows=[[k.replace("_", " "), v] for k, v in non_neutral.items()],
+        note=("Computed periodically against the cached scenario. "
+               "Educational only."),
+    )
+
 
 def _scenario_callout(scenario: CurrentScenario | None) -> CalloutBlock | None:
     if scenario is None:
@@ -110,6 +135,19 @@ def _blocks_for_agent(name: str, output: AgentOutput) -> list[Block]:
                 title="What affects this",
                 items=items,
             ))
+
+    # Scenario & policy tilts (per-query): render as a compact table.
+    tilts = structured.get("tilts")
+    if isinstance(tilts, dict) and tilts:
+        non_neutral = {k: v for k, v in tilts.items() if v != "neutral"}
+        rows_source = non_neutral if non_neutral else tilts
+        blocks.append(TableBlock(
+            title="Instrument tilts (current backdrop)",
+            columns=["Instrument", "Tilt"],
+            rows=[[k.replace("_", " "), v] for k, v in rows_source.items()],
+            note=("'tailwind' = backdrop is supportive; 'headwind' = backdrop "
+                   "is unfavourable; 'neutral' otherwise. Educational only."),
+        ))
 
     # Recommender output: candidates as a table (if/when wired into a plan).
     candidates = structured.get("candidates")
@@ -176,6 +214,75 @@ def _blocks_for_agent(name: str, output: AgentOutput) -> list[Block]:
             note=f"Method: {allocation.get('method', '')}",
         ))
 
+    # Brief agent: each BriefItem becomes one bullet in a ListBlock.
+    brief_items = structured.get("items")
+    if isinstance(brief_items, list) and brief_items \
+            and all(isinstance(it, dict) and "title" in it for it in brief_items):
+        blocks.append(ListBlock(
+            title="Today's brief",
+            items=[{
+                "label": it.get("title"),
+                "description": it.get("plain_english"),
+                "why_it_matters": it.get("why_it_matters"),
+                "severity": it.get("severity"),
+            } for it in brief_items],
+        ))
+
+    # Recommendation: Comparison block (winner per factor + summary).
+    comparison = structured.get("comparison")
+    if isinstance(comparison, dict) and comparison.get("winner_by_factor"):
+        winners = comparison["winner_by_factor"]
+        blocks.append(TableBlock(
+            title="Winner per factor",
+            columns=["Factor", "Winner"],
+            rows=[[k.replace("_", " ").title(), v] for k, v in winners.items()],
+            note=comparison.get("summary"),
+        ))
+
+    # Historical agent: render the era's price series as a line chart and
+    # the window stats as a side table.
+    report = structured.get("historical_report")
+    if isinstance(report, dict):
+        era = report.get("era") or {}
+        perf = report.get("performance") or {}
+        ticker = report.get("ticker") or ""
+        instrument_label = report.get("instrument_label") or ticker
+        points = perf.get("points") or []
+        if points:
+            blocks.append(ChartBlock(
+                title=f"{instrument_label} during {era.get('label', '')}",
+                shape="line",
+                x_label="Date",
+                y_label="Close",
+                series=[{
+                    "name": ticker or instrument_label,
+                    "points": [{"x": pt["t"], "y": pt["close"]}
+                                for pt in points],
+                }],
+            ))
+        if perf:
+            rows = []
+            if perf.get("period_return_pct") is not None:
+                rows.append(["Period return",
+                              f"{perf['period_return_pct']:+.2f}%"])
+            if perf.get("max_drawdown_pct") is not None:
+                rows.append(["Max drawdown",
+                              f"{perf['max_drawdown_pct']:.2f}%"])
+            if perf.get("annualized_volatility_pct") is not None:
+                rows.append(["Annualized vol",
+                              f"{perf['annualized_volatility_pct']:.2f}%"])
+            if perf.get("start_price") is not None:
+                rows.append(["Start price", perf["start_price"]])
+            if perf.get("end_price") is not None:
+                rows.append(["End price", perf["end_price"]])
+            if rows:
+                blocks.append(TableBlock(
+                    title="Window stats",
+                    columns=["Metric", "Value"],
+                    rows=rows,
+                    note=era.get("summary"),
+                ))
+
     return blocks
 
 
@@ -185,6 +292,8 @@ def _title_for_agent(name: str) -> str | None:
         "recommendation": "Why this stands out",
         "scenario_policy": "Policy & scenario read",
         "personalization": "For your situation",
+        "historical": "How it behaved then",
+        "brief": "Today's market summary",
         "not_implemented": None,
     }.get(name)
 

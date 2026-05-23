@@ -15,13 +15,26 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
+from app.core.geography import price_sources_for
 from app.layers.education import explain as education_explain
+from app.layers.historical import (compute_era_performance, find_era,
+                                      resolve_ticker)
+from app.layers.brief_signals import (macro_movements, market_pulse,
+                                          trending_news)
+from app.layers.market_data import get_sources_by_name
+from app.layers.market_data.base import PriceSource
+from app.layers.memory import (readout as memory_readout, record_activity,
+                                  record_turn)
 from app.layers.projection import (allocation_for_profile, monte_carlo_sip,
                                       sip_future_value)
+from app.layers.recommender import (compare_candidates, consensus_fetcher,
+                                       enrich as recommender_enrich,
+                                       score_candidates)
 from app.layers.scenario import scenario_store
-from app.layers.search import find_videos, web_search
+from app.layers.search import find_videos, vector_search, web_search
 from app.orchestrator.budget import QueryBudget
-from app.schemas import UserContext
+from app.schemas import (HistoricalReport, InstrumentType, Intent,
+                          UserContext)
 
 
 @dataclass
@@ -32,6 +45,8 @@ class RunContext:
     query: str
     user: UserContext
     budget: QueryBudget
+    user_id: str | None = None
+    session_id: str | None = None
     accumulator: dict[str, Any] = field(default_factory=dict)
 
     def stash(self, key: str, value: Any) -> None:
@@ -149,6 +164,247 @@ async def _call_search_videos(ctx: RunContext) -> None:
     _append_documents(ctx, docs)
 
 
+async def _call_search_vector(ctx: RunContext) -> None:
+    """Semantic retrieval over ingested SEBI/AMC docs. Falls back to keyword
+    matching when no embedding provider is configured."""
+    try:
+        ctx.budget.spend_search()
+    except Exception:
+        return
+    docs = await vector_search(ctx.query, k=4)
+    _append_documents(ctx, docs)
+
+
+# --- memory layer-calls ----------------------------------------------------
+
+async def _call_memory_readout(ctx: RunContext) -> None:
+    """Load persistent profile + recent turns + recent activity for the
+    user. Stashes the result under `memory_readout` for agents AND hydrates
+    UserContext with any persisted fields the request didn't override."""
+    if not ctx.user_id:
+        return
+    readout = await memory_readout(ctx.user_id, country=ctx.user.country)
+    ctx.stash("memory_readout", readout)
+
+    # Hydrate UserContext: persisted fields fill in where the request was silent.
+    p = readout.profile
+    u = ctx.user
+    new = u.model_dump()
+    fills = {
+        "age": p.age,
+        "risk_tolerance": p.risk_tolerance,
+        "goal": p.goal,
+        "income_bracket": p.income_bracket,
+        "comprehension_level": p.comprehension_level,
+        "instrument_type": p.instrument_type,
+        "amount": p.amount,
+        "horizon_years": p.horizon_years,
+    }
+    changed = False
+    for k, v in fills.items():
+        if new.get(k) in (None, "") and v is not None:
+            new[k] = v
+            changed = True
+    if changed:
+        ctx.user = UserContext(**new)
+
+
+async def _call_memory_record_turn(ctx: RunContext) -> None:
+    """Persist this turn. Runs at the end of every plan — the envelope is
+    pulled from the assembly agent's output once it lands."""
+    if not ctx.user_id or not ctx.session_id:
+        return
+    outputs = ctx.accumulator.get("__agent_outputs__", {}) or {}
+    assembly_out = outputs.get("assembly")
+    envelope: dict[str, Any] = {}
+    if assembly_out is not None:
+        env_val = assembly_out.structured.get("envelope")
+        if isinstance(env_val, dict):
+            envelope = env_val
+    intent = ctx.accumulator.get("intent") or Intent.UNKNOWN
+    if not isinstance(intent, Intent):
+        try:
+            intent = Intent(intent)
+        except ValueError:
+            intent = Intent.UNKNOWN
+    await record_turn(
+        user_id=ctx.user_id,
+        session_id=ctx.session_id,
+        query=ctx.query,
+        intent=intent,
+        envelope=envelope,
+    )
+
+
+async def _call_memory_record_activity(ctx: RunContext) -> None:
+    """Record a coarse-grained activity event derived from the current plan
+    outputs. Cheap; runs alongside record_turn."""
+    if not ctx.user_id:
+        return
+    intent = ctx.accumulator.get("intent")
+    event_type = {
+        Intent.EXPLAIN_TERM: "term_viewed",
+        Intent.QUICK_FACT: "fact_viewed",
+        Intent.PROJECT_RETURNS: "projection_run",
+        Intent.RECOMMEND_INSTRUMENT: "recommendation_viewed",
+        Intent.HISTORICAL_BEHAVIOR: "historical_viewed",
+        Intent.CURRENT_NEWS: "news_viewed",
+        Intent.COMPARE_INSTRUMENTS: "comparison_run",
+        Intent.DAILY_BRIEF: "brief_viewed",
+    }.get(intent if isinstance(intent, Intent) else None)
+    if event_type is None:
+        return
+    payload: dict[str, Any] = {"query": ctx.query[:300]}
+    if term := ctx.get("term"):
+        payload["term"] = term
+    if (report := ctx.get("historical_report")) is not None:
+        payload["ticker"] = getattr(report, "ticker", None)
+        payload["era_id"] = getattr(getattr(report, "era", None), "id", None)
+    await record_activity(user_id=ctx.user_id, event_type=event_type,
+                            payload=payload)
+
+
+# --- brief layer-call ------------------------------------------------------
+
+async def _call_brief_gather(ctx: RunContext) -> None:
+    """Gather signals (market pulse + macro movements + trending news) for
+    the user's country. Used by the DAILY_BRIEF plan."""
+    import asyncio as _asyncio
+    country = ctx.user.country
+    pulse, macros, news = await _asyncio.gather(
+        market_pulse(country),
+        macro_movements(country),
+        trending_news(country, limit=10),
+        return_exceptions=True,
+    )
+    signals: list = []
+    if not isinstance(pulse, Exception) and pulse is not None:
+        signals.append(pulse)
+    if isinstance(macros, list):
+        signals.extend(macros)
+    if isinstance(news, list):
+        signals.extend(news)
+    ctx.stash("brief_signals", signals)
+
+
+# --- recommender layer-calls ----------------------------------------------
+
+# Cheap heuristic so COMPARE_INSTRUMENTS works without a structured field.
+_INSTRUMENT_HINTS = [
+    (InstrumentType.SIP, ("sip",)),
+    (InstrumentType.ETF, ("etf", "etfs")),
+    (InstrumentType.MUTUAL_FUND, ("mutual fund", "mf ", "mutual funds")),
+    (InstrumentType.STOCK, ("stock", "stocks", "share")),
+    (InstrumentType.BOND, ("bond", "g-sec", "gilt")),
+    (InstrumentType.NCD, ("ncd",)),
+    (InstrumentType.FD, ("fixed deposit", " fd ", "fd ")),
+]
+
+
+def _resolve_instrument(ctx: RunContext) -> InstrumentType | None:
+    if ctx.user.instrument_type is not None:
+        return ctx.user.instrument_type
+    q = " " + ctx.query.lower() + " "
+    for inst, kws in _INSTRUMENT_HINTS:
+        if any(kw in q for kw in kws):
+            return inst
+    return None
+
+
+async def _call_recommender_consensus(ctx: RunContext) -> None:
+    """Fetch consensus candidates for the (instrument, country, category).
+    Stashes the raw list under `candidates`."""
+    inst = _resolve_instrument(ctx)
+    if inst is None:
+        ctx.stash("candidates", [])
+        return
+    try:
+        results = await consensus_fetcher.fetch(
+            instrument_type=inst,
+            country=ctx.user.country,
+            category=ctx.user.goal,
+        )
+    except Exception:
+        ctx.stash("candidates", [])
+        return
+    ctx.stash("candidates", results[:8])
+
+
+async def _call_recommender_enrich(ctx: RunContext) -> None:
+    """Fill in returns/expense/AUM/risk for each candidate."""
+    cs = ctx.get("candidates") or []
+    if not cs:
+        return
+    try:
+        enriched = await recommender_enrich(cs, ctx.user.country)
+    except Exception:
+        enriched = cs
+    ctx.stash("candidates", enriched)
+
+
+async def _call_recommender_score(ctx: RunContext) -> None:
+    """Rank the candidates against the user profile."""
+    cs = ctx.get("candidates") or []
+    if not cs:
+        return
+    ranked = score_candidates(cs, ctx.user)
+    ctx.stash("candidates", ranked)
+
+
+async def _call_recommender_compare(ctx: RunContext) -> None:
+    """Build a side-by-side Comparison from the ranked candidates."""
+    cs = ctx.get("candidates") or []
+    if not cs:
+        return
+    ctx.stash("comparison", compare_candidates(cs[:6]))
+
+
+# --- historical layer-call -------------------------------------------------
+
+async def _call_historical_era_performance(ctx: RunContext) -> None:
+    """End-to-end historical lookup:
+      1. Match era from the free-form query.
+      2. Resolve a representative ticker for the mentioned instrument.
+      3. Fetch the price history covering the era.
+      4. Compute window stats.
+    Failures leave `historical_report` as None — the agent handles it.
+    """
+    era = find_era(ctx.query, country=ctx.user.country)
+    if era is None:
+        ctx.stash("historical_report", None)
+        return
+
+    ticker, label = resolve_ticker(ctx.query, ctx.user.country)
+    if ticker is None:
+        ctx.stash("historical_report", HistoricalReport(
+            era=era, instrument_label=label, ticker="",
+            performance=None,
+        ))
+        return
+
+    # Fetch a long-enough history window. yfinance accepts 'max' or year
+    # offsets; we ask for max and let the analytics filter to the era.
+    sources = [s for s in get_sources_by_name(
+                  price_sources_for(ctx.user.country))
+                if isinstance(s, PriceSource)]
+    points = []
+    for src in sources:
+        try:
+            points = await src.get_history(ticker, period="max")
+        except Exception:
+            points = []
+        if points:
+            break
+
+    perf = compute_era_performance(ticker, era, points) if points else None
+    ctx.stash("historical_report", HistoricalReport(
+        era=era,
+        instrument_label=label,
+        ticker=ticker,
+        performance=perf,
+    ))
+
+
 def _append_documents(ctx: RunContext, docs: list) -> None:
     existing = ctx.get("documents") or []
     seen = {(d.url or d.title).lower() for d in existing}
@@ -210,4 +466,14 @@ LAYER_CALLS: dict[str, LayerCall] = {
     "search.web": _call_search_web,
     "search.term_resources": _call_search_term_resources,
     "search.videos": _call_search_videos,
+    "search.vector": _call_search_vector,
+    "historical.era_performance": _call_historical_era_performance,
+    "memory.readout": _call_memory_readout,
+    "memory.record_turn": _call_memory_record_turn,
+    "memory.record_activity": _call_memory_record_activity,
+    "recommender.consensus": _call_recommender_consensus,
+    "recommender.enrich": _call_recommender_enrich,
+    "recommender.score": _call_recommender_score,
+    "recommender.compare": _call_recommender_compare,
+    "brief.gather": _call_brief_gather,
 }

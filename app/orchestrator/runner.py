@@ -22,10 +22,14 @@ import logging
 from typing import Awaitable, Callable
 
 from app.agents import assembly as assembly_agent
+from app.agents import brief as brief_agent
 from app.agents import education as education_agent
+from app.agents import historical as historical_agent
 from app.agents import intent as intent_agent
 from app.agents import not_implemented as not_implemented_agent
 from app.agents import personalization as personalization_agent
+from app.agents import recommendation as recommendation_agent
+from app.agents import scenario_policy as scenario_policy_agent
 from app.orchestrator.budget import BudgetExceeded, QueryBudget
 from app.orchestrator.layer_calls import LAYER_CALLS, RunContext
 from app.orchestrator.planner import PlanStep, plan_for
@@ -42,6 +46,10 @@ AGENT_REGISTRY: dict[str, AgentRun] = {
     "intent": intent_agent.run,
     "education": education_agent.run,
     "personalization": personalization_agent.run,
+    "recommendation": recommendation_agent.run,
+    "historical": historical_agent.run,
+    "scenario_policy": scenario_policy_agent.run,
+    "brief": brief_agent.run,
     "not_implemented": not_implemented_agent.run,
     "assembly": assembly_agent.run,
 }
@@ -50,11 +58,27 @@ _AGENT_OUTPUTS_KEY = "__agent_outputs__"
 
 
 async def ask(query: str, user: UserContext,
-               budget: QueryBudget | None = None) -> ResponseEnvelope:
-    """Top-level orchestrator call. Returns a ResponseEnvelope ready for the UI."""
+               budget: QueryBudget | None = None,
+               user_id: str | None = None,
+               session_id: str | None = None) -> ResponseEnvelope:
+    """Top-level orchestrator call. Returns a ResponseEnvelope ready for the UI.
+
+    `user_id` / `session_id` are opaque identifiers from the HTTP layer. If
+    present, the orchestrator hydrates UserContext from the memory layer
+    before classifying intent, and persists this turn at the end.
+    """
     budget = budget or QueryBudget()
-    ctx = RunContext(query=query, user=user, budget=budget)
+    ctx = RunContext(query=query, user=user, budget=budget,
+                      user_id=user_id, session_id=session_id)
     ctx.accumulator[_AGENT_OUTPUTS_KEY] = {}
+
+    # Memory readout runs BEFORE intent classification so the Context half
+    # of the Intent agent can see the persisted profile + recent turns.
+    if user_id:
+        try:
+            await _run_layer_step("memory.readout", ctx)
+        except BudgetExceeded as exc:
+            ctx.budget.note(str(exc))
 
     intent = await _classify(ctx)
     ctx.stash("intent", intent)
@@ -70,6 +94,16 @@ async def ask(query: str, user: UserContext,
         ctx.budget.note(str(exc))
 
     envelope = _final_envelope(ctx, intent, query, last_output)
+
+    # Persist the turn + activity AFTER the envelope is built, so the
+    # persisted JSONB matches what the user actually saw. Best-effort.
+    if user_id:
+        try:
+            await LAYER_CALLS["memory.record_turn"](ctx)
+            await LAYER_CALLS["memory.record_activity"](ctx)
+        except Exception:
+            logger.exception("memory persistence failed user=%s", user_id)
+
     debug = dict(envelope.debug)
     debug["budget"] = ctx.budget.as_dict()
     return envelope.model_copy(update={"debug": debug})

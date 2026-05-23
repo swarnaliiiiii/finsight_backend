@@ -1,10 +1,10 @@
-"""Daily Brief response schemas."""
+"""Daily Brief response schemas + the per-layer Signal contract."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.user import InstrumentType
 
@@ -20,6 +20,21 @@ class BriefSourceType(str, Enum):
     MACRO = "macro"
     INDEX = "index"
     SENTIMENT = "sentiment"
+
+
+class Signal(BaseModel):
+    """Candidate signal produced by the brief_signals layer and consumed by
+    the brief agent. Schema-level so it can cross the layer<->agent boundary."""
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    title: str
+    raw_data: str
+    source_type: BriefSourceType
+    affected_instruments: list[InstrumentType] = Field(default_factory=list)
+    severity: BriefSeverity = BriefSeverity.INFO
+    source_links: list[str] = Field(default_factory=list)
+    learn_more_terms: list[str] = Field(default_factory=list)
+    importance_score: float = 0.5
 
 
 class BriefItem(BaseModel):

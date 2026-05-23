@@ -8,6 +8,7 @@ python-dotenv
 sqlalchemy
 asyncpg
 psycopg2-binary
+aiosqlite        # dev/test fallback when DATABASE_URL is sqlite+aiosqlite://...
 
 # Background jobs + in-memory cache (no Redis/Celery — single-instance MVP)
 apscheduler

@@ -75,7 +75,8 @@ def macro_sources_for(country: CountryCode) -> list[str]:
 
 def funds_sources_for(country: CountryCode) -> list[str]:
     if country == "IN":
-        return ["mftool"]
+        # AMFI gives the bulk universe; mftool fills per-scheme details.
+        return ["amfi", "mftool"]
     return []  # no MF coverage for US/UK in MVP
 
 

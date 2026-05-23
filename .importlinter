@@ -28,6 +28,10 @@ modules =
     app.agents.intent
     app.agents.education
     app.agents.personalization
+    app.agents.recommendation
+    app.agents.historical
+    app.agents.scenario_policy
+    app.agents.brief
     app.agents.assembly
     app.agents.not_implemented
 

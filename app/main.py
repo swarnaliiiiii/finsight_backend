@@ -7,9 +7,10 @@ which data sources are queried.
 from __future__ import annotations
 
 import asyncio
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, Header, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -21,21 +22,30 @@ from app.core.geography import (CountryCode, country_dependency, funds_sources_f
 from app.layers.market_data import get_sources_by_name
 from app.layers.market_data.base import (FundSource, MacroSource, NewsSource,
                                             PriceSource)
+from app.layers.memory import close_memory, init_memory
 from app.layers.scenario import (scenario_store, start_scenario_refresher,
                                     stop_scenario_refresher)
+from app.layers.search import vector_ingest
 from app.orchestrator import ask as orchestrator_ask
+from app.orchestrator.scenario_hook import enrich_scenario_with_tilts
 from app.schemas import (InstrumentType, ResponseEnvelope, RiskLevel,
                           UserContext)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Launch the scenario refresher at startup; cancel it cleanly at shutdown."""
-    start_scenario_refresher()
+    """Lifecycle hooks:
+      - init the memory layer (schema bootstrap)
+      - start the scenario refresher with the LLM-tilts enricher
+      - reverse on shutdown
+    """
+    await init_memory()
+    start_scenario_refresher(on_snapshot_built=enrich_scenario_with_tilts)
     try:
         yield
     finally:
         await stop_scenario_refresher()
+        await close_memory()
 
 
 app = FastAPI(title="FinSight AI", version="0.1.0", lifespan=lifespan)
@@ -88,11 +98,25 @@ class AskRequest(BaseModel):
 @app.post("/api/ask", response_model=ResponseEnvelope)
 async def ask(
     body: AskRequest,
+    response: Response,
     country: CountryCode = Depends(country_dependency),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_session_id: str | None = Header(default=None, alias="X-Session-Id"),
 ) -> ResponseEnvelope:
     """Free-form NL endpoint. The orchestrator classifies intent, runs the
     plan, and returns a ResponseEnvelope of typed UI blocks. Optional
-    structured profile fields refine the user context."""
+    structured profile fields refine the user context.
+
+    Identity:
+      - `X-User-Id`: opaque UUID; if absent, the server issues one and
+        echoes it back as a response header. Clients should persist it.
+      - `X-Session-Id`: opaque UUID per conversation; same fallback.
+    """
+    user_id = x_user_id or str(uuid.uuid4())
+    session_id = x_session_id or str(uuid.uuid4())
+    response.headers["X-User-Id"] = user_id
+    response.headers["X-Session-Id"] = session_id
+
     user = UserContext(
         country=country,
         instrument_type=body.instrument_type,
@@ -102,7 +126,32 @@ async def ask(
         goal=body.goal,
         age=body.age,
     )
-    return await orchestrator_ask(body.query, user)
+    return await orchestrator_ask(body.query, user, user_id=user_id,
+                                     session_id=session_id)
+
+
+class IngestRequest(BaseModel):
+    source: str = Field(..., description="'sebi' | 'amc' | other tag")
+    doc_id: str = Field(..., max_length=128)
+    title: str = Field(..., max_length=300)
+    text: str = Field(..., min_length=1)
+    url: str | None = None
+    metadata: dict | None = None
+
+
+@app.post("/api/admin/ingest")
+async def ingest_document(body: IngestRequest) -> dict:
+    """Ingest a single document into the vector store. Intended for an
+    admin / batch pipeline — wire auth before exposing publicly."""
+    chunks = await vector_ingest(
+        source=body.source,
+        doc_id=body.doc_id,
+        title=body.title,
+        text=body.text,
+        url=body.url,
+        metadata=body.metadata,
+    )
+    return {"chunks": chunks, "doc_id": body.doc_id, "source": body.source}
 
 
 @app.get("/api/news")
