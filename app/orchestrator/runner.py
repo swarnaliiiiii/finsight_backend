@@ -1,13 +1,15 @@
-"""Orchestrator entry-point: free-form query in, AgentOutput out.
+"""Orchestrator entry-point: free-form query in, ResponseEnvelope out.
 
 Flow:
   1. Classify intent via Intent agent.
   2. Look up the deterministic plan for that intent.
   3. Execute each step in order:
        - 'layer' step  -> call whitelisted function from LAYER_CALLS
-       - 'agent' step  -> build AgentInput from accumulator, invoke agent
-  4. Return the final agent's AgentOutput, with budget + intent merged into
-     `structured` so the API can surface them.
+       - 'agent' step  -> build AgentInput from accumulator, invoke agent,
+                          stash its AgentOutput under
+                          accumulator['__agent_outputs__'][name]
+  4. If the plan included an Assembly agent, return its envelope.
+     Otherwise, wrap the last agent's narrative in a default envelope.
 
 Architectural invariants enforced here:
   - Agents are dispatched ONLY through this runner (the AGENT_REGISTRY)
@@ -19,13 +21,16 @@ from __future__ import annotations
 import logging
 from typing import Awaitable, Callable
 
+from app.agents import assembly as assembly_agent
 from app.agents import education as education_agent
 from app.agents import intent as intent_agent
 from app.agents import not_implemented as not_implemented_agent
+from app.agents import personalization as personalization_agent
 from app.orchestrator.budget import BudgetExceeded, QueryBudget
 from app.orchestrator.layer_calls import LAYER_CALLS, RunContext
 from app.orchestrator.planner import PlanStep, plan_for
-from app.schemas import AgentInput, AgentOutput, Intent, UserContext
+from app.schemas import (AgentInput, AgentOutput, Intent, NarrativeBlock,
+                          ResponseEnvelope, UserContext)
 
 logger = logging.getLogger(__name__)
 
@@ -36,45 +41,48 @@ AgentRun = Callable[[AgentInput], Awaitable[AgentOutput]]
 AGENT_REGISTRY: dict[str, AgentRun] = {
     "intent": intent_agent.run,
     "education": education_agent.run,
+    "personalization": personalization_agent.run,
     "not_implemented": not_implemented_agent.run,
+    "assembly": assembly_agent.run,
 }
+
+_AGENT_OUTPUTS_KEY = "__agent_outputs__"
 
 
 async def ask(query: str, user: UserContext,
-               budget: QueryBudget | None = None) -> AgentOutput:
-    """Top-level orchestrator call."""
+               budget: QueryBudget | None = None) -> ResponseEnvelope:
+    """Top-level orchestrator call. Returns a ResponseEnvelope ready for the UI."""
     budget = budget or QueryBudget()
     ctx = RunContext(query=query, user=user, budget=budget)
+    ctx.accumulator[_AGENT_OUTPUTS_KEY] = {}
 
     intent = await _classify(ctx)
     ctx.stash("intent", intent)
 
     steps = plan_for(intent)
-    final: AgentOutput | None = None
+    last_output: AgentOutput | None = None
     try:
         for step in steps:
-            final = await _run_step(step, ctx, intent)
+            step_output = await _run_step(step, ctx, intent)
+            if step_output is not None:
+                last_output = step_output
     except BudgetExceeded as exc:
         ctx.budget.note(str(exc))
-        if final is None:
-            final = AgentOutput(
-                narrative="Sorry, this query exceeded its compute budget before "
-                          "we could finish. Try a simpler question.",
-                structured={"intent": intent.value, "error": str(exc)},
-            )
 
-    assert final is not None  # every plan ends with at least one agent step
-    merged_structured = dict(final.structured)
-    merged_structured.setdefault("intent", intent.value)
-    merged_structured["budget"] = ctx.budget.as_dict()
-    return final.model_copy(update={"structured": merged_structured})
+    envelope = _final_envelope(ctx, intent, query, last_output)
+    debug = dict(envelope.debug)
+    debug["budget"] = ctx.budget.as_dict()
+    return envelope.model_copy(update={"debug": debug})
 
 
 # --- internals -------------------------------------------------------------
 
 async def _classify(ctx: RunContext) -> Intent:
     """Run the intent agent and pull the classified Intent out of its output."""
-    ctx.budget.spend_agent_invocation("intent")
+    try:
+        ctx.budget.spend_agent_invocation("intent")
+    except BudgetExceeded:
+        return Intent.UNKNOWN
     agent_input = _build_agent_input(ctx, intent=Intent.UNKNOWN)
     out = await intent_agent.run(agent_input)
     raw = out.structured.get("intent")
@@ -110,7 +118,9 @@ async def _run_agent_step(name: str, ctx: RunContext,
         raise KeyError(f"unknown agent: {name!r}")
     ctx.budget.spend_agent_invocation(name)
     agent_input = _build_agent_input(ctx, intent=intent)
-    return await runner(agent_input)
+    out = await runner(agent_input)
+    ctx.accumulator[_AGENT_OUTPUTS_KEY][name] = out
+    return out
 
 
 def _build_agent_input(ctx: RunContext, intent: Intent) -> AgentInput:
@@ -131,4 +141,26 @@ def _build_agent_input(ctx: RunContext, intent: Intent) -> AgentInput:
         upstream={k: v for k, v in acc.items()
                    if k not in {"scenario", "documents", "market_data",
                                  "history", "intent"}},
+    )
+
+
+def _final_envelope(ctx: RunContext, intent: Intent, query: str,
+                      last_output: AgentOutput | None) -> ResponseEnvelope:
+    """Extract the envelope from the Assembly agent's output, or build a
+    minimal one from the last agent's narrative."""
+    assembly_out = ctx.accumulator.get(_AGENT_OUTPUTS_KEY, {}).get("assembly")
+    if assembly_out is not None:
+        env_dict = assembly_out.structured.get("envelope")
+        if isinstance(env_dict, dict):
+            try:
+                return ResponseEnvelope.model_validate(env_dict)
+            except Exception:
+                logger.exception("assembly envelope failed validation; falling back")
+    # Fallback: wrap whatever the last agent said in a single narrative block.
+    text = (last_output.narrative if last_output and last_output.narrative
+             else "Sorry — no response was produced for this query.")
+    return ResponseEnvelope(
+        intent=intent,
+        query=query,
+        blocks=[NarrativeBlock(text=text)],
     )

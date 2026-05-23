@@ -24,7 +24,8 @@ from app.layers.market_data.base import (FundSource, MacroSource, NewsSource,
 from app.layers.scenario import (scenario_store, start_scenario_refresher,
                                     stop_scenario_refresher)
 from app.orchestrator import ask as orchestrator_ask
-from app.schemas import AgentOutput, InstrumentType, RiskLevel, UserContext
+from app.schemas import (InstrumentType, ResponseEnvelope, RiskLevel,
+                          UserContext)
 
 
 @asynccontextmanager
@@ -84,14 +85,14 @@ class AskRequest(BaseModel):
     age: int | None = Field(default=None, ge=0, le=120)
 
 
-@app.post("/api/ask", response_model=AgentOutput)
+@app.post("/api/ask", response_model=ResponseEnvelope)
 async def ask(
     body: AskRequest,
     country: CountryCode = Depends(country_dependency),
-) -> AgentOutput:
+) -> ResponseEnvelope:
     """Free-form NL endpoint. The orchestrator classifies intent, runs the
-    plan, and returns a single AgentOutput. Optional structured profile fields
-    refine the user context."""
+    plan, and returns a ResponseEnvelope of typed UI blocks. Optional
+    structured profile fields refine the user context."""
     user = UserContext(
         country=country,
         instrument_type=body.instrument_type,

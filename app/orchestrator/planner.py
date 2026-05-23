@@ -29,30 +29,44 @@ def A(name: str) -> PlanStep: return PlanStep("agent", name)
 
 
 INTENT_PLANS: dict[Intent, list[PlanStep]] = {
-    # "What is a SIP?" -> KG lookup + scenario context + LLM narrative.
+    # "What is a SIP?" -> KG lookup + scenario context + LLM narrative + UI pack.
     Intent.EXPLAIN_TERM: [
         L("education.explain"),
         L("scenario.snapshot"),
         A("education"),
+        A("assembly"),
     ],
 
     # "What's the repo rate today?" -> scenario snapshot already has it.
     Intent.QUICK_FACT: [
         L("scenario.snapshot"),
         A("education"),
+        A("assembly"),
     ],
 
-    # The rest are stubs for now — they classify cleanly but the plans
-    # return a "not yet wired" message via the placeholder agent. This keeps
-    # the orchestrator complete and lets later steps add capability by
-    # filling in agents/layer-calls, not by editing the runner.
-    Intent.COMPARE_INSTRUMENTS: [A("not_implemented")],
-    Intent.RECOMMEND_INSTRUMENT: [A("not_implemented")],
-    Intent.PROJECT_RETURNS: [A("not_implemented")],
-    Intent.CURRENT_NEWS: [A("not_implemented")],
-    Intent.HISTORICAL_BEHAVIOR: [A("not_implemented")],
-    Intent.DAILY_BRIEF: [A("not_implemented")],
-    Intent.UNKNOWN: [A("not_implemented")],
+    # "If I invest 5000/month for 10 years..." -> point + Monte Carlo + framing.
+    Intent.PROJECT_RETURNS: [
+        L("projection.sip_future_value"),
+        L("projection.monte_carlo"),
+        L("scenario.snapshot"),
+        A("personalization"),
+        A("assembly"),
+    ],
+
+    # "What should I invest in?" -> allocation plan + framing.
+    Intent.RECOMMEND_INSTRUMENT: [
+        L("projection.allocation"),
+        L("scenario.snapshot"),
+        A("personalization"),
+        A("assembly"),
+    ],
+
+    # Still stubs. Assembly runs so the response shape stays uniform.
+    Intent.COMPARE_INSTRUMENTS: [A("not_implemented"), A("assembly")],
+    Intent.CURRENT_NEWS: [A("not_implemented"), A("assembly")],
+    Intent.HISTORICAL_BEHAVIOR: [A("not_implemented"), A("assembly")],
+    Intent.DAILY_BRIEF: [A("not_implemented"), A("assembly")],
+    Intent.UNKNOWN: [A("not_implemented"), A("assembly")],
 }
 
 

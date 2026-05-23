@@ -11,12 +11,17 @@ Rules enforced architecturally (see .importlinter at repo root):
   - `app.agents.*` may NOT import from other agents
 """
 from app.schemas.agent_io import AgentInput, AgentOutput
+from app.schemas.assembly import (Block, CalloutBlock, ChartBlock,
+                                     CitationsBlock, ListBlock, NarrativeBlock,
+                                     ResponseEnvelope, TableBlock, VideoBlock)
 from app.schemas.brief import (BriefItem, BriefSeverity, BriefSourceType,
                                  DailyBrief)
 from app.schemas.documents import Document
 from app.schemas.instruments import (AffectingEntity, Comparison, Explanation,
                                        InstrumentCandidate, Recommendation)
 from app.schemas.intent import Intent
+from app.schemas.projection import (AllocationPlan, AllocationSlice,
+                                       Projection, ProjectionRange)
 from app.schemas.scenario import (CurrentScenario, Event, EventType,
                                     MarketRegime, PolicyState)
 from app.schemas.user import InstrumentType, RiskLevel, UserContext
@@ -25,9 +30,15 @@ __all__ = [
     "AffectingEntity",
     "AgentInput",
     "AgentOutput",
+    "AllocationPlan",
+    "AllocationSlice",
+    "Block",
     "BriefItem",
     "BriefSeverity",
     "BriefSourceType",
+    "CalloutBlock",
+    "ChartBlock",
+    "CitationsBlock",
     "Comparison",
     "CurrentScenario",
     "DailyBrief",
@@ -38,9 +49,16 @@ __all__ = [
     "InstrumentCandidate",
     "InstrumentType",
     "Intent",
+    "ListBlock",
     "MarketRegime",
+    "NarrativeBlock",
     "PolicyState",
+    "Projection",
+    "ProjectionRange",
     "Recommendation",
+    "ResponseEnvelope",
     "RiskLevel",
+    "TableBlock",
     "UserContext",
+    "VideoBlock",
 ]

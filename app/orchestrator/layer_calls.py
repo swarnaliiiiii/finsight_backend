@@ -11,10 +11,13 @@ Each wrapper:
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 from app.layers.education import explain as education_explain
+from app.layers.projection import (allocation_for_profile, monte_carlo_sip,
+                                      sip_future_value)
 from app.layers.scenario import scenario_store
 from app.orchestrator.budget import QueryBudget
 from app.schemas import UserContext
@@ -69,6 +72,78 @@ def _guess_term(query: str) -> str | None:
     return None
 
 
+# --- projection layer-calls ------------------------------------------------
+
+_DEFAULT_ASSUMED_RETURN = 0.12  # illustrative; the agent flags this as an assumption
+
+
+async def _call_projection_sip_fv(ctx: RunContext) -> None:
+    """Deterministic SIP future value. Pulls monthly + years from either the
+    UserContext or by parsing them out of the free-form query."""
+    monthly, years = _resolve_amount_and_horizon(ctx)
+    if monthly is None or years is None:
+        ctx.stash("projection", None)
+        return
+    ctx.stash("projection",
+               sip_future_value(monthly, _DEFAULT_ASSUMED_RETURN, years))
+
+
+async def _call_projection_monte_carlo(ctx: RunContext) -> None:
+    """Monte Carlo range for an SIP. Same inputs as projection.sip_fv."""
+    monthly, years = _resolve_amount_and_horizon(ctx)
+    if monthly is None or years is None:
+        ctx.stash("projection_range", None)
+        return
+    ctx.stash("projection_range",
+               monte_carlo_sip(monthly, years, seed=1234))
+
+
+async def _call_projection_allocation(ctx: RunContext) -> None:
+    """Rule-based allocation for the user's profile."""
+    plan = allocation_for_profile(
+        age=ctx.user.age,
+        risk=ctx.user.risk_tolerance,
+        target_monthly=ctx.user.amount,
+    )
+    ctx.stash("allocation", plan)
+
+
+# --- input parsers ---------------------------------------------------------
+
+_AMOUNT_RE = re.compile(
+    r"(?:invest|put|save)\s+(?:rs\.?|₹|\$|£)?\s?([\d,]+(?:\.\d+)?)"
+    r"(?:\s?(k|lakh|crore|cr|l))?", re.I)
+_HORIZON_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:year|yr|y)s?\b", re.I)
+_SCALE = {"k": 1_000, "l": 100_000, "lakh": 100_000, "cr": 10_000_000,
+           "crore": 10_000_000}
+
+
+def _resolve_amount_and_horizon(ctx: RunContext) -> tuple[float | None,
+                                                              float | None]:
+    """Use UserContext fields first; fall back to parsing the NL query."""
+    monthly = ctx.user.amount
+    years: float | None = (float(ctx.user.horizon_years)
+                            if ctx.user.horizon_years is not None else None)
+    if monthly is None:
+        m = _AMOUNT_RE.search(ctx.query)
+        if m:
+            try:
+                amt = float(m.group(1).replace(",", ""))
+                scale = (_SCALE.get(m.group(2).lower(), 1)
+                          if m.group(2) else 1)
+                monthly = amt * scale
+            except (ValueError, AttributeError):
+                pass
+    if years is None:
+        m = _HORIZON_RE.search(ctx.query)
+        if m:
+            try:
+                years = float(m.group(1))
+            except ValueError:
+                pass
+    return monthly, years
+
+
 # --- registry --------------------------------------------------------------
 
 LayerCall = Callable[[RunContext], Awaitable[None]]
@@ -76,4 +151,7 @@ LayerCall = Callable[[RunContext], Awaitable[None]]
 LAYER_CALLS: dict[str, LayerCall] = {
     "scenario.snapshot": _call_scenario_snapshot,
     "education.explain": _call_education_explain,
+    "projection.sip_future_value": _call_projection_sip_fv,
+    "projection.monte_carlo": _call_projection_monte_carlo,
+    "projection.allocation": _call_projection_allocation,
 }

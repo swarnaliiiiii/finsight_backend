@@ -27,6 +27,8 @@ type = independence
 modules =
     app.agents.intent
     app.agents.education
+    app.agents.personalization
+    app.agents.assembly
     app.agents.not_implemented
 
 [importlinter:contract:layers-cannot-import-agents]
