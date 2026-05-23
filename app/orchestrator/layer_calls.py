@@ -19,6 +19,7 @@ from app.layers.education import explain as education_explain
 from app.layers.projection import (allocation_for_profile, monte_carlo_sip,
                                       sip_future_value)
 from app.layers.scenario import scenario_store
+from app.layers.search import find_videos, web_search
 from app.orchestrator.budget import QueryBudget
 from app.schemas import UserContext
 
@@ -108,6 +109,58 @@ async def _call_projection_allocation(ctx: RunContext) -> None:
     ctx.stash("allocation", plan)
 
 
+# --- search layer-calls ----------------------------------------------------
+
+async def _call_search_web(ctx: RunContext) -> None:
+    """General web search keyed off the user's free-form query. Decrements
+    the per-query search budget (separate from the layer-call counter)."""
+    try:
+        ctx.budget.spend_search()
+    except Exception:
+        return
+    docs = await web_search(ctx.query, country=ctx.user.country, limit=6)
+    _append_documents(ctx, docs)
+
+
+async def _call_search_term_resources(ctx: RunContext) -> None:
+    """Resource curation for an EXPLAIN_TERM-style query: one combined web
+    search ('best beginner explainer <term> India 2026') that picks up both
+    articles and videos. Cheap — single Tavily call, no YouTube quota."""
+    term = ctx.get("term")
+    if not term:
+        return
+    try:
+        ctx.budget.spend_search()
+    except Exception:
+        return
+    q = (f"best beginner explainer {term} {ctx.user.country} 2026 "
+          "(article OR video)")
+    docs = await web_search(q, country=ctx.user.country, limit=6)
+    _append_documents(ctx, docs)
+
+
+async def _call_search_videos(ctx: RunContext) -> None:
+    """Explicit YouTube curation. Burns YouTube quota (~100 units) so the
+    runner uses this only when the plan really wants video results."""
+    term = ctx.get("term") or ctx.query
+    if not term:
+        return
+    docs = await find_videos(term, country=ctx.user.country, limit=4)
+    _append_documents(ctx, docs)
+
+
+def _append_documents(ctx: RunContext, docs: list) -> None:
+    existing = ctx.get("documents") or []
+    seen = {(d.url or d.title).lower() for d in existing}
+    for d in docs:
+        key = (d.url or d.title).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        existing.append(d)
+    ctx.stash("documents", existing)
+
+
 # --- input parsers ---------------------------------------------------------
 
 _AMOUNT_RE = re.compile(
@@ -154,4 +207,7 @@ LAYER_CALLS: dict[str, LayerCall] = {
     "projection.sip_future_value": _call_projection_sip_fv,
     "projection.monte_carlo": _call_projection_monte_carlo,
     "projection.allocation": _call_projection_allocation,
+    "search.web": _call_search_web,
+    "search.term_resources": _call_search_term_resources,
+    "search.videos": _call_search_videos,
 }

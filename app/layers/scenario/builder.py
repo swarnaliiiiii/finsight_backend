@@ -1,8 +1,9 @@
 """Compose a `CurrentScenario` snapshot for a country.
 
-Pulls from market_data (index quote, macro indicators) and news sources, then
-structures the result into the typed `CurrentScenario` schema. No LLM calls,
-no agent invocations — pure I/O + rule-based event tagging.
+Pulls from market_data (index quote, macro indicators) and news sources,
+then structures the result into the typed `CurrentScenario` schema. Event
+tagging delegates to `app.layers.search.event_classifier` — LLM-graded
+when a key is configured, keyword-tagged otherwise.
 
 Failure tolerance: each individual source is wrapped; a single bad source
 yields a partial-but-valid snapshot rather than crashing the refresh loop.
@@ -10,37 +11,20 @@ yields a partial-but-valid snapshot rather than crashing the refresh loop.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from datetime import datetime, timezone
 
 from app.core.geography import (macro_sources_for, market_locale,
                                   news_sources_for, price_sources_for)
 from app.layers.market_data import get_sources_by_name
 from app.layers.market_data.base import (MacroSource, NewsSource, PriceSource)
-from app.schemas import (CurrentScenario, Event, EventType, MarketRegime,
-                          PolicyState)
+from app.layers.search import classify_event
+from app.schemas import (CurrentScenario, Event, MarketRegime, PolicyState)
 
 _COUNTRY_INDEX_TICKER: dict[str, str] = {
     "IN": "^NSEI",
     "US": "^GSPC",
     "UK": "^FTSE",
 }
-
-# Coarse keyword -> EventType mapping for the layer-level tagger. The
-# Scenario & Policy Impact *agent* (step 9) will do nuanced classification;
-# this exists so the snapshot ships with usable structure on day one.
-_EVENT_KEYWORDS: list[tuple[EventType, tuple[str, ...]]] = [
-    (EventType.WAR, ("war", "invasion", "ceasefire", "military strike")),
-    (EventType.GEOPOLITICAL, ("sanctions", "tariff", "geopolitical", "border")),
-    (EventType.MONETARY_POLICY, ("rate cut", "rate hike", "repo rate", "fed funds",
-                                  "rbi policy", "fomc")),
-    (EventType.FISCAL_POLICY, ("budget", "fiscal", "deficit")),
-    (EventType.REGULATORY, ("sebi", "regulator", "ruling", "compliance order")),
-    (EventType.INFLATION_SHOCK, ("inflation", "cpi", "wpi")),
-    (EventType.MARKET_CRASH, ("crash", "plunge", "selloff", "circuit breaker")),
-    (EventType.PANDEMIC, ("pandemic", "outbreak", "epidemic")),
-    (EventType.ELECTION, ("election", "poll result", "general election")),
-]
 
 
 async def build_scenario(country: str) -> CurrentScenario:
@@ -54,7 +38,7 @@ async def build_scenario(country: str) -> CurrentScenario:
         regime_task, policy_task, headlines_task)
 
     headlines = headlines or []
-    events = _classify_events(headlines)
+    events = await _classify_events(headlines)
 
     return CurrentScenario(
         refreshed_at=datetime.now(timezone.utc),
@@ -161,27 +145,19 @@ def _is_policy_rate(country: str, indicator: str) -> bool:
     return False
 
 
-def _classify_events(headlines: list[dict]) -> list[Event]:
-    events: list[Event] = []
-    for h in headlines:
-        title = h.get("title") or ""
-        lowered = title.lower()
-        for ev_type, kws in _EVENT_KEYWORDS:
-            if any(kw in lowered for kw in kws):
-                events.append(Event(
-                    id=_short_hash(title),
-                    type=ev_type,
-                    headline=title,
-                    summary=title,
-                    started_at=h.get("published_at"),
-                    sources=[h["url"]] if h.get("url") else [],
-                ))
-                break  # at most one tag per headline at the layer level
-    return events
-
-
-def _short_hash(s: str) -> str:
-    return hashlib.sha1(s.encode("utf-8")).hexdigest()[:12]
+async def _classify_events(headlines: list[dict]) -> list[Event]:
+    """Run the LLM/keyword classifier across headlines in parallel."""
+    if not headlines:
+        return []
+    tasks = [classify_event(h.get("title") or "", url=h.get("url"),
+                              published_at=h.get("published_at"))
+              for h in headlines]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    out: list[Event] = []
+    for r in results:
+        if isinstance(r, Event):
+            out.append(r)
+    return out
 
 
 async def _safe(coro):

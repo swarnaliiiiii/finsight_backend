@@ -29,9 +29,12 @@ def A(name: str) -> PlanStep: return PlanStep("agent", name)
 
 
 INTENT_PLANS: dict[Intent, list[PlanStep]] = {
-    # "What is a SIP?" -> KG lookup + scenario context + LLM narrative + UI pack.
+    # "What is a SIP?" -> KG lookup + curated resources + scenario context +
+    # LLM narrative + UI pack. Resource curation uses one combined Tavily
+    # call (article + video hits in one shot) — cheap and high-signal.
     Intent.EXPLAIN_TERM: [
         L("education.explain"),
+        L("search.term_resources"),
         L("scenario.snapshot"),
         A("education"),
         A("assembly"),
@@ -61,9 +64,18 @@ INTENT_PLANS: dict[Intent, list[PlanStep]] = {
         A("assembly"),
     ],
 
+    # "What's the latest news on X?" -> web search + scenario callout + pack.
+    # Education agent surfaces the headlines in a beginner-safe frame; the
+    # Scenario & Policy Impact agent (step 9) will add sentiment later.
+    Intent.CURRENT_NEWS: [
+        L("search.web"),
+        L("scenario.snapshot"),
+        A("education"),
+        A("assembly"),
+    ],
+
     # Still stubs. Assembly runs so the response shape stays uniform.
     Intent.COMPARE_INSTRUMENTS: [A("not_implemented"), A("assembly")],
-    Intent.CURRENT_NEWS: [A("not_implemented"), A("assembly")],
     Intent.HISTORICAL_BEHAVIOR: [A("not_implemented"), A("assembly")],
     Intent.DAILY_BRIEF: [A("not_implemented"), A("assembly")],
     Intent.UNKNOWN: [A("not_implemented"), A("assembly")],

@@ -13,8 +13,9 @@ from __future__ import annotations
 from typing import Any
 
 from app.schemas import (AgentInput, AgentOutput, CalloutBlock, ChartBlock,
-                          CitationsBlock, CurrentScenario, ListBlock,
-                          NarrativeBlock, ResponseEnvelope, TableBlock)
+                          CitationsBlock, CurrentScenario, Document, ListBlock,
+                          NarrativeBlock, ResponseEnvelope, TableBlock,
+                          VideoBlock)
 from app.schemas.assembly import Block
 
 _AGENT_OUTPUTS_KEY = "__agent_outputs__"
@@ -37,6 +38,11 @@ async def run(input: AgentInput) -> AgentOutput:
             continue
         blocks.extend(_blocks_for_agent(name, out))
         citations.extend(out.citations)
+
+    # Retrieved documents (from search.* layer calls) become Video/List blocks.
+    doc_blocks, doc_urls = _blocks_for_documents(input.documents)
+    blocks.extend(doc_blocks)
+    citations.extend(doc_urls)
 
     if citations:
         blocks.append(CitationsBlock(sources=_dedupe(citations)))
@@ -191,3 +197,29 @@ def _dedupe(xs: list[str]) -> list[str]:
             seen.add(x)
             out.append(x)
     return out
+
+
+def _blocks_for_documents(docs: list[Document]) -> tuple[list[Block], list[str]]:
+    """Split retrieved docs into a VideoBlock (kind=='video') and a ListBlock
+    (everything else with a URL). Returns (blocks, urls_for_citations)."""
+    if not docs:
+        return [], []
+    videos = [d for d in docs if d.kind == "video"]
+    articles = [d for d in docs if d.kind != "video"]
+    blocks: list[Block] = []
+    if videos:
+        blocks.append(VideoBlock(
+            title="Watch / listen",
+            items=[{"title": d.title, "url": d.url,
+                     "channel": d.snippet.split("]", 1)[0].lstrip("[")
+                                if d.snippet.startswith("[") else None}
+                    for d in videos if d.url],
+        ))
+    if articles:
+        blocks.append(ListBlock(
+            title="Further reading",
+            items=[{"label": d.title, "description": d.snippet, "url": d.url}
+                    for d in articles if d.url],
+        ))
+    urls = [d.url for d in docs if d.url]
+    return blocks, urls
