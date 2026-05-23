@@ -9,7 +9,7 @@ from typing import Any
 
 import yfinance as yf
 
-from app.sources.base import PricePoint, PriceQuote, PriceSource
+from app.layers.market_data.base import PricePoint, PriceQuote, PriceSource
 
 
 class YFinanceSource(PriceSource):

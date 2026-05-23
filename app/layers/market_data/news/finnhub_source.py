@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import httpx
 
 from app.config import settings
-from app.sources.base import NewsItem, NewsSource
+from app.layers.market_data.base import NewsItem, NewsSource
 
 
 class FinnhubSource(NewsSource):

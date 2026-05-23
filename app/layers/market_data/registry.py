@@ -5,22 +5,22 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from app.sources.base import BaseSource
-from app.sources.funds.mftool_source import MftoolSource
-from app.sources.macro.fred_source import FREDSource
-from app.sources.macro.rbi_source import RBISource
-from app.sources.macro.world_bank_source import WorldBankSource
-from app.sources.news.finnhub_source import FinnhubSource
-from app.sources.news.gnews_source import GNewsSource
-from app.sources.news.marketaux_source import MarketauxSource
-from app.sources.news.newsapi_source import NewsAPISource
-from app.sources.news.rss_source import (EconomicTimesRSSSource,
+from app.layers.market_data.base import BaseSource
+from app.layers.market_data.funds.mftool_source import MftoolSource
+from app.layers.market_data.macro.fred_source import FREDSource
+from app.layers.market_data.macro.rbi_source import RBISource
+from app.layers.market_data.macro.world_bank_source import WorldBankSource
+from app.layers.market_data.news.finnhub_source import FinnhubSource
+from app.layers.market_data.news.gnews_source import GNewsSource
+from app.layers.market_data.news.marketaux_source import MarketauxSource
+from app.layers.market_data.news.newsapi_source import NewsAPISource
+from app.layers.market_data.news.rss_source import (EconomicTimesRSSSource,
                                           GenericRSSSource,
                                           MoneycontrolRSSSource)
-from app.sources.news.tavily_source import TavilySource
-from app.sources.prices.alpha_vantage_source import AlphaVantageSource
-from app.sources.prices.nse_source import NSESource
-from app.sources.prices.yfinance_source import YFinanceSource
+from app.layers.market_data.news.tavily_source import TavilySource
+from app.layers.market_data.prices.alpha_vantage_source import AlphaVantageSource
+from app.layers.market_data.prices.nse_source import NSESource
+from app.layers.market_data.prices.yfinance_source import YFinanceSource
 
 
 @lru_cache

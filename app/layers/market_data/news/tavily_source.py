@@ -7,7 +7,7 @@ from datetime import datetime
 import httpx
 
 from app.config import settings
-from app.sources.base import NewsItem, NewsSource
+from app.layers.market_data.base import NewsItem, NewsSource
 
 
 class TavilySource(NewsSource):

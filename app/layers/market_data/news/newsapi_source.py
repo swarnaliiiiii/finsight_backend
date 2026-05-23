@@ -6,7 +6,7 @@ from datetime import datetime
 import httpx
 
 from app.config import settings
-from app.sources.base import NewsItem, NewsSource
+from app.layers.market_data.base import NewsItem, NewsSource
 
 _COUNTRY_DOMAINS = {
     "IN": "moneycontrol.com,economictimes.indiatimes.com,livemint.com,business-standard.com",

@@ -53,3 +53,6 @@ lxml
 # Data handling
 pandas
 numpy
+
+# Architectural guardrails (dev/CI)
+import-linter

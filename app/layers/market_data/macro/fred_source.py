@@ -5,7 +5,7 @@ import asyncio
 from datetime import date
 
 from app.config import settings
-from app.sources.base import MacroPoint, MacroSource
+from app.layers.market_data.base import MacroPoint, MacroSource
 
 _US_INDICATORS: dict[str, tuple[str, str, str]] = {
     # series_id -> (display_name, unit, fred_series)

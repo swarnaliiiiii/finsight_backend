@@ -1,0 +1,288 @@
+{
+  "sip": {
+    "plain_english": "A Systematic Investment Plan (SIP) lets you invest a fixed small amount in a mutual fund every month instead of one big lump sum. Over time, you buy more units when the market is low and fewer when it's high — this averages out your cost.",
+    "why_it_matters": "SIPs are the easiest way for beginners to start investing because they remove the stress of timing the market. They also build the habit of regular saving.",
+    "affecting_entities": [
+      {
+        "name": "Net Asset Value (NAV)",
+        "description": "The per-unit price of the mutual fund. Each SIP installment buys units at the current NAV.",
+        "direction": "neutral",
+        "data_source": "mftool",
+        "impact_level": "high"
+      },
+      {
+        "name": "Expense Ratio",
+        "description": "Annual fee charged by the fund house, expressed as a percentage of your investment. Higher expense ratio reduces your final returns.",
+        "direction": "negative",
+        "data_source": "mftool",
+        "impact_level": "high"
+      },
+      {
+        "name": "Fund Manager",
+        "description": "The person making investment decisions for the fund. A manager change can shift the fund's strategy and performance.",
+        "direction": "neutral",
+        "data_source": "manual_research",
+        "impact_level": "moderate"
+      },
+      {
+        "name": "Repo Rate (RBI Policy Rate)",
+        "description": "When RBI raises rates, debt funds usually lose value short-term but offer higher yields later; equity funds may slow down because borrowing is costlier.",
+        "direction": "negative",
+        "data_source": "rbi",
+        "impact_level": "moderate"
+      },
+      {
+        "name": "Inflation (CPI)",
+        "description": "If inflation is higher than your fund's return, your money loses real purchasing power.",
+        "direction": "negative",
+        "data_source": "rbi",
+        "impact_level": "moderate"
+      },
+      {
+        "name": "Market Volatility (NIFTY/SENSEX swings)",
+        "description": "Short-term swings affect NAV but SIPs naturally average them out over time. Beginners should focus on 3+ year horizons.",
+        "direction": "neutral",
+        "data_source": "yfinance",
+        "impact_level": "moderate"
+      },
+      {
+        "name": "Exit Load",
+        "description": "A small fee charged if you withdraw within a specified period (often 1 year). Reduces your effective returns if you exit early.",
+        "direction": "negative",
+        "data_source": "manual_research",
+        "impact_level": "low"
+      }
+    ],
+    "related_terms": ["mutual_fund", "nav", "expense_ratio", "stp", "swp"]
+  },
+
+  "mutual_fund": {
+    "plain_english": "A mutual fund pools money from many investors and a professional manager invests it in stocks, bonds, or both. You own units of the fund instead of individual stocks.",
+    "why_it_matters": "Mutual funds give you instant diversification and professional management even with small amounts — you can't easily buy 50 stocks with ₹500 but a fund can.",
+    "affecting_entities": [
+      {
+        "name": "Net Asset Value (NAV)",
+        "description": "Daily price per unit. Calculated from the underlying holdings' market value minus expenses.",
+        "direction": "neutral",
+        "data_source": "mftool",
+        "impact_level": "high"
+      },
+      {
+        "name": "Expense Ratio",
+        "description": "Annual cost. A 2% expense ratio means ₹2 of every ₹100 invested goes to fund costs each year.",
+        "direction": "negative",
+        "data_source": "mftool",
+        "impact_level": "high"
+      },
+      {
+        "name": "Assets Under Management (AUM)",
+        "description": "Total money managed by the fund. Very small AUM means the fund might shut; very large AUM in small-cap funds can hurt performance.",
+        "direction": "neutral",
+        "data_source": "mftool",
+        "impact_level": "moderate"
+      },
+      {
+        "name": "Underlying Market Performance",
+        "description": "Equity funds track NIFTY/SENSEX broadly; debt funds track bond yields. Their performance moves together.",
+        "direction": "neutral",
+        "data_source": "yfinance",
+        "impact_level": "high"
+      }
+    ],
+    "related_terms": ["sip", "nav", "expense_ratio", "etf"]
+  },
+
+  "stock": {
+    "plain_english": "A stock is a small piece of ownership in a company. If the company does well, the stock value goes up; if it does poorly, it goes down.",
+    "why_it_matters": "Stocks can give higher returns than fixed deposits or mutual funds, but they're also riskier. Individual stocks can lose 50%+ value while a diversified fund rarely does.",
+    "affecting_entities": [
+      {
+        "name": "Company Earnings",
+        "description": "Quarterly profit/loss reports. Better-than-expected earnings usually push the price up.",
+        "direction": "positive",
+        "data_source": "finnhub",
+        "impact_level": "high"
+      },
+      {
+        "name": "Sector Performance",
+        "description": "All companies in the same sector (e.g., IT, banking) tend to move together when industry conditions change.",
+        "direction": "neutral",
+        "data_source": "yfinance",
+        "impact_level": "high"
+      },
+      {
+        "name": "Interest Rates",
+        "description": "Higher rates make borrowing costly for companies and make bonds more attractive than stocks, pulling stock prices down.",
+        "direction": "negative",
+        "data_source": "fred_or_rbi",
+        "impact_level": "high"
+      },
+      {
+        "name": "Currency Exchange Rate",
+        "description": "Export-heavy companies (IT, pharma in India) benefit from a weaker rupee; import-heavy ones suffer.",
+        "direction": "neutral",
+        "data_source": "yfinance",
+        "impact_level": "moderate"
+      },
+      {
+        "name": "Global Market Sentiment",
+        "description": "Indian stocks often follow US market direction with a one-day lag — especially large-caps.",
+        "direction": "neutral",
+        "data_source": "yfinance",
+        "impact_level": "moderate"
+      },
+      {
+        "name": "Promoter Holdings",
+        "description": "If founders/promoters reduce their stake significantly, it can signal lack of confidence.",
+        "direction": "negative",
+        "data_source": "manual_research",
+        "impact_level": "moderate"
+      }
+    ],
+    "related_terms": ["etf", "mutual_fund", "pe_ratio", "dividend"]
+  },
+
+  "etf": {
+    "plain_english": "An ETF (Exchange Traded Fund) is like a mutual fund but trades on the stock exchange like a stock. It usually tracks an index (NIFTY 50, S&P 500) so you get diversification cheaply.",
+    "why_it_matters": "ETFs have much lower expense ratios than mutual funds (often 0.05% vs 1-2%) — that difference compounds massively over 10+ years. Best 'set and forget' option for beginners.",
+    "affecting_entities": [
+      {
+        "name": "Underlying Index Performance",
+        "description": "If you buy a NIFTY 50 ETF, your returns match NIFTY 50 minus a tiny fee.",
+        "direction": "neutral",
+        "data_source": "yfinance",
+        "impact_level": "high"
+      },
+      {
+        "name": "Tracking Error",
+        "description": "How closely the ETF follows its index. Lower is better — under 0.5% is good.",
+        "direction": "negative",
+        "data_source": "manual_research",
+        "impact_level": "moderate"
+      },
+      {
+        "name": "Liquidity / Trading Volume",
+        "description": "Low-volume ETFs have wider bid-ask spreads, meaning you pay more to buy and get less to sell.",
+        "direction": "negative",
+        "data_source": "yfinance",
+        "impact_level": "moderate"
+      },
+      {
+        "name": "Expense Ratio",
+        "description": "Annual fee. ETF expense ratios are usually 5-10x lower than mutual funds.",
+        "direction": "negative",
+        "data_source": "manual_research",
+        "impact_level": "high"
+      }
+    ],
+    "related_terms": ["mutual_fund", "index_fund", "nifty_50", "sp500"]
+  },
+
+  "bond": {
+    "plain_english": "A bond is a loan you give to a government or company. They pay you fixed interest periodically and return your principal at maturity.",
+    "why_it_matters": "Bonds are predictable and safer than stocks. Good for the 'stable' portion of your portfolio, especially as you near goals like buying a house or retirement.",
+    "affecting_entities": [
+      {
+        "name": "Interest Rates (Repo / Fed Funds)",
+        "description": "When central banks raise rates, existing bond prices fall (new bonds offer better rates). When rates drop, bond prices rise.",
+        "direction": "negative",
+        "data_source": "rbi_or_fred",
+        "impact_level": "high"
+      },
+      {
+        "name": "Credit Rating",
+        "description": "AAA bonds are safest; lower ratings (BBB and below) offer higher returns but higher default risk.",
+        "direction": "neutral",
+        "data_source": "manual_research",
+        "impact_level": "high"
+      },
+      {
+        "name": "Inflation",
+        "description": "High inflation erodes the real value of bond payments because they're typically fixed.",
+        "direction": "negative",
+        "data_source": "rbi_or_fred",
+        "impact_level": "high"
+      },
+      {
+        "name": "Time to Maturity",
+        "description": "Longer-maturity bonds are more sensitive to rate changes. 10-year bonds swing more than 1-year bonds.",
+        "direction": "neutral",
+        "data_source": "instrument_metadata",
+        "impact_level": "moderate"
+      }
+    ],
+    "related_terms": ["ncd", "fd", "yield", "credit_rating"]
+  },
+
+  "ncd": {
+    "plain_english": "A Non-Convertible Debenture (NCD) is a corporate bond — a loan you give to a company at a fixed interest rate for a fixed period. Issued by companies like HDFC, Muthoot, Shriram.",
+    "why_it_matters": "NCDs often pay 1-3% higher interest than bank FDs because they're slightly riskier — you depend on the company staying solvent.",
+    "affecting_entities": [
+      {
+        "name": "Company Financial Health",
+        "description": "If the issuing company goes bankrupt, you may lose part or all of your principal.",
+        "direction": "negative",
+        "data_source": "finnhub_or_moneycontrol",
+        "impact_level": "high"
+      },
+      {
+        "name": "Credit Rating (CRISIL/ICRA)",
+        "description": "AAA-rated NCDs are very safe; AA and below get progressively riskier.",
+        "direction": "neutral",
+        "data_source": "manual_research",
+        "impact_level": "high"
+      },
+      {
+        "name": "Repo Rate",
+        "description": "If RBI hikes rates after you buy, your fixed-rate NCD becomes relatively less attractive.",
+        "direction": "negative",
+        "data_source": "rbi",
+        "impact_level": "moderate"
+      },
+      {
+        "name": "Liquidity in Secondary Market",
+        "description": "If you need to sell before maturity, NCDs can be hard to sell at a fair price.",
+        "direction": "negative",
+        "data_source": "manual_research",
+        "impact_level": "moderate"
+      }
+    ],
+    "related_terms": ["bond", "fd", "credit_rating"]
+  },
+
+  "fd": {
+    "plain_english": "A Fixed Deposit (FD) is money you lock in with a bank for a fixed period (e.g., 1 year) at a guaranteed interest rate. Withdraw early and you pay a small penalty.",
+    "why_it_matters": "FDs are the safest investment most beginners know — your principal is guaranteed (insured up to ₹5 lakh in India under DICGC). The tradeoff is low returns.",
+    "affecting_entities": [
+      {
+        "name": "Bank's Interest Rate",
+        "description": "Set by each bank, partly driven by RBI's repo rate. Compare across banks — small finance banks usually pay more.",
+        "direction": "positive",
+        "data_source": "manual_research",
+        "impact_level": "high"
+      },
+      {
+        "name": "Inflation",
+        "description": "If your FD pays 7% and inflation is 6%, your real return is only 1%.",
+        "direction": "negative",
+        "data_source": "rbi",
+        "impact_level": "high"
+      },
+      {
+        "name": "Tax Bracket",
+        "description": "FD interest is fully taxable as income. A 30% tax bracket investor's 7% FD effectively becomes 4.9%.",
+        "direction": "negative",
+        "data_source": "user_input",
+        "impact_level": "high"
+      },
+      {
+        "name": "Bank Health",
+        "description": "Principal is insured only up to ₹5 lakh per bank per depositor. Spread large amounts across banks.",
+        "direction": "negative",
+        "data_source": "manual_research",
+        "impact_level": "moderate"
+      }
+    ],
+    "related_terms": ["bond", "ncd", "tax_bracket"]
+  }
+}

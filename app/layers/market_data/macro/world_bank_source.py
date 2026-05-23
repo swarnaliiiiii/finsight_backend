@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 
-from app.sources.base import MacroPoint, MacroSource
+from app.layers.market_data.base import MacroPoint, MacroSource
 
 _COUNTRY_ISO3 = {"IN": "IND", "US": "USA", "UK": "GBR"}
 _INDICATORS: list[tuple[str, str, str]] = [

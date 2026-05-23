@@ -9,7 +9,7 @@ from time import mktime
 
 import feedparser
 
-from app.sources.base import NewsItem, NewsSource
+from app.layers.market_data.base import NewsItem, NewsSource
 
 _FEEDS: dict[str, list[tuple[str, str]]] = {
     "IN": [

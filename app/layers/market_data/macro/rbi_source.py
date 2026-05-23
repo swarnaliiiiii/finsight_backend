@@ -10,7 +10,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.config import settings
-from app.sources.base import MacroPoint, MacroSource
+from app.layers.market_data.base import MacroPoint, MacroSource
 
 _RBI_URL = "https://www.rbi.org.in/"
 

@@ -6,7 +6,7 @@ from datetime import datetime
 import httpx
 
 from app.config import settings
-from app.sources.base import PricePoint, PriceQuote, PriceSource
+from app.layers.market_data.base import PricePoint, PriceQuote, PriceSource
 
 
 class AlphaVantageSource(PriceSource):

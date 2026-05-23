@@ -1,0 +1,49 @@
+[importlinter]
+root_package = app
+
+# ---------------------------------------------------------------------------
+# Architectural rules. These enforce the orchestrator-authority model.
+#
+# Rule of thumb:
+#   - layers/      : deterministic, I/O OK, no LLM calls
+#   - agents/      : LLM-driven reasoning, NO direct I/O, NO sibling agent calls
+#   - orchestrator/: the only module allowed to compose layers + agents
+#   - schemas/     : shared frozen contracts, importable from anywhere
+#
+# Violations of these rules cannot be merged.
+# ---------------------------------------------------------------------------
+
+[importlinter:contract:agents-cannot-import-layers]
+name = Agents must not call layers directly (orchestrator owns I/O)
+type = forbidden
+source_modules =
+    app.agents
+forbidden_modules =
+    app.layers
+
+[importlinter:contract:agents-cannot-import-each-other]
+name = Agents must not invoke each other (orchestrator owns fan-out)
+type = independence
+modules =
+    app.agents.intent
+    app.agents.education
+    app.agents.not_implemented
+
+[importlinter:contract:layers-cannot-import-agents]
+name = Layers must not depend on agents (one-way dependency)
+type = forbidden
+source_modules =
+    app.layers
+forbidden_modules =
+    app.agents
+    app.orchestrator
+
+[importlinter:contract:schemas-stay-pure]
+name = Schemas must not depend on layers, agents, or orchestrator
+type = forbidden
+source_modules =
+    app.schemas
+forbidden_modules =
+    app.layers
+    app.agents
+    app.orchestrator
