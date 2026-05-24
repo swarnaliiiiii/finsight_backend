@@ -20,4 +20,5 @@ class Intent(str, Enum):
     HISTORICAL_BEHAVIOR = "historical_behavior"
     QUICK_FACT = "quick_fact"
     DAILY_BRIEF = "daily_brief"
+    INSTRUMENT_STARTER = "instrument_starter"
     UNKNOWN = "unknown"

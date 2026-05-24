@@ -44,6 +44,19 @@ _RULES: list[tuple[Intent, re.Pattern]] = [
         r"\b(recommend|suggest|which.*should\s+i|best\s+\w+\s+for)\b", re.I)),
     (Intent.COMPARE_INSTRUMENTS, re.compile(
         r"\b(vs\.?|versus|compare|better)\b", re.I)),
+    # INSTRUMENT_STARTER: actionable "how do I start / open / buy / set up"
+    # with any actionable instrument keyword (SIP, MF, ETF, gold ETF, FD,
+    # bond, NCD, stock). Routed *before* EXPLAIN_TERM so it triggers the
+    # full profile-form flow + projection + curated picks + reading +
+    # sentiment, instead of a one-paragraph dictionary lookup.
+    (Intent.INSTRUMENT_STARTER, re.compile(
+        r"(?=.*\b(start|begin|open|set\s*up|buy|invest\s+in|purchase|"
+        r"how\s+do\s+i|how\s+can\s+i|how\s+to)\b)"
+        r"(?=.*\b(sip|mutual\s+fund|mf|elss|etf|etfs|gold\s+etf|"
+        r"silver\s+etf|index\s+fund|nifty|sensex|fd|fixed\s+deposit|"
+        r"bond|bonds|ncd|gold|stock|stocks|share|shares|equity|"
+        r"fund|invest(ing|ment)?)\b)",
+        re.I)),
     (Intent.EXPLAIN_TERM, re.compile(
         r"^(what\s+is|what's|explain|tell\s+me\s+about|how\s+does|how\s+do|"
         r"how\s+to\s+start|what\s+are)\b", re.I)),
@@ -75,6 +88,10 @@ _LLM_PROMPT = ChatPromptTemplate.from_messages([
      "- historical_behavior : asks about past performance or behaviour during an era\n"
      "- quick_fact : asks for a current data point (repo rate, NAV, etc.)\n"
      "- daily_brief : asks for the morning/daily brief\n"
+     "- instrument_starter : the user wants to BEGIN investing in a specific "
+       "instrument — how to start a SIP, open a mutual fund, buy a gold ETF, "
+       "set up an FD, buy bonds, start an ETF, etc. They want a plan, "
+       "not a definition.\n"
      "- unknown : none of the above\n\n"
      "User context (use as gentle prior, the QUERY still decides):\n{context}"),
     ("user", "{query}")

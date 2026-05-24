@@ -67,9 +67,28 @@ class CitationsBlock(_BaseBlock, frozen=True):
     sources: list[str]
 
 
+class FormBlock(_BaseBlock, frozen=True):
+    """Inline form the UI renders inside a chat turn. When the user submits,
+    the frontend re-issues POST /api/ask with the same `query` plus the
+    captured fields as structured profile inputs.
+
+    Each field is a dict like:
+      {"name": "age", "label": "Your age",
+       "kind": "number"|"select"|"text",
+       "min": 18, "max": 80, "step": 1,
+       "placeholder": "e.g. 28",
+       "options": [{"value":"conservative","label":"..."}],
+       "required": true}
+    """
+    kind: Literal["form"] = "form"
+    intent: str  # which intent to route the resubmit through (e.g. "sip_starter")
+    submit_label: str = "Build my plan"
+    fields: list[dict[str, Any]] = Field(default_factory=list)
+
+
 Block = Annotated[
     Union[NarrativeBlock, CalloutBlock, TableBlock, ChartBlock, ListBlock,
-            VideoBlock, CitationsBlock],
+            VideoBlock, CitationsBlock, FormBlock],
     Field(discriminator="kind"),
 ]
 

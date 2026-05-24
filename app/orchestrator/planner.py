@@ -56,10 +56,35 @@ INTENT_PLANS: dict[Intent, list[PlanStep]] = {
         A("assembly"),
     ],
 
-    # "What should I invest in?" -> allocation plan + framing.
+    # "What should I invest in?" -> allocation plan + candidate picks + framing.
     Intent.RECOMMEND_INSTRUMENT: [
+        L("recommender.consensus"),
+        L("recommender.enrich"),
+        L("recommender.score"),
         L("projection.allocation"),
         L("scenario.snapshot"),
+        A("recommendation"),
+        A("personalization"),
+        A("assembly"),
+    ],
+
+    # "How do I start a SIP / open an FD / buy gold ETF" -> full starter
+    # flow: gate on profile completeness (form block if missing) + KG def +
+    # allocation + projection + monte carlo + curated picks + reading +
+    # crowd sentiment + pack.
+    Intent.INSTRUMENT_STARTER: [
+        L("education.explain"),
+        L("recommender.consensus"),
+        L("recommender.enrich"),
+        L("recommender.score"),
+        L("projection.allocation"),
+        L("projection.sip_future_value"),
+        L("projection.monte_carlo"),
+        L("search.term_resources"),
+        L("sentiment.crowd"),
+        L("scenario.snapshot"),
+        A("instrument_starter"),
+        A("recommendation"),
         A("personalization"),
         A("assembly"),
     ],
@@ -83,12 +108,15 @@ INTENT_PLANS: dict[Intent, list[PlanStep]] = {
     ],
 
     # "Gold ETF vs silver ETF" / "Compare large-cap funds" ->
-    # consensus + enrich + score + compare + LLM narrative + pack.
+    # consensus + enrich + score + compare + crowd sentiment + reading +
+    # LLM narrative + pack.
     Intent.COMPARE_INSTRUMENTS: [
         L("recommender.consensus"),
         L("recommender.enrich"),
         L("recommender.score"),
         L("recommender.compare"),
+        L("sentiment.crowd"),
+        L("search.term_resources"),
         L("scenario.snapshot"),
         A("recommendation"),
         A("assembly"),

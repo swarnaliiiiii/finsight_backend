@@ -25,6 +25,7 @@ from app.agents import assembly as assembly_agent
 from app.agents import brief as brief_agent
 from app.agents import education as education_agent
 from app.agents import historical as historical_agent
+from app.agents import instrument_starter as instrument_starter_agent
 from app.agents import intent as intent_agent
 from app.agents import not_implemented as not_implemented_agent
 from app.agents import personalization as personalization_agent
@@ -50,6 +51,7 @@ AGENT_REGISTRY: dict[str, AgentRun] = {
     "historical": historical_agent.run,
     "scenario_policy": scenario_policy_agent.run,
     "brief": brief_agent.run,
+    "instrument_starter": instrument_starter_agent.run,
     "not_implemented": not_implemented_agent.run,
     "assembly": assembly_agent.run,
 }

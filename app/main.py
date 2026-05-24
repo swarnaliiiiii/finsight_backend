@@ -93,6 +93,7 @@ class AskRequest(BaseModel):
     risk_tolerance: RiskLevel | None = None
     goal: str | None = None
     age: int | None = Field(default=None, ge=0, le=120)
+    income_bracket: str | None = None
 
 
 @app.post("/api/ask", response_model=ResponseEnvelope)
@@ -125,6 +126,7 @@ async def ask(
         risk_tolerance=body.risk_tolerance,
         goal=body.goal,
         age=body.age,
+        income_bracket=body.income_bracket,
     )
     return await orchestrator_ask(body.query, user, user_id=user_id,
                                      session_id=session_id)

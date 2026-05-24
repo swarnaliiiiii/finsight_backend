@@ -15,10 +15,12 @@ class BudgetExceeded(Exception):
 
 @dataclass
 class QueryBudget:
-    max_layer_calls: int = 8
-    max_agent_invocations: int = 6
-    max_search_queries: int = 2
-    max_llm_tokens: int = 20_000
+    # Tuned for INSTRUMENT_STARTER (the largest plan: ~10 layer calls + 4
+    # agents). Other plans run well under the cap.
+    max_layer_calls: int = 14
+    max_agent_invocations: int = 8
+    max_search_queries: int = 3
+    max_llm_tokens: int = 30_000
 
     used_layer_calls: int = 0
     used_agent_invocations: int = 0

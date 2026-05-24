@@ -13,9 +13,9 @@ from __future__ import annotations
 from typing import Any
 
 from app.schemas import (AgentInput, AgentOutput, CalloutBlock, ChartBlock,
-                          CitationsBlock, CurrentScenario, Document, ListBlock,
-                          NarrativeBlock, ResponseEnvelope, TableBlock,
-                          VideoBlock)
+                          CitationsBlock, CurrentScenario, Document, FormBlock,
+                          ListBlock, NarrativeBlock, ResponseEnvelope,
+                          TableBlock, VideoBlock)
 from app.schemas.assembly import Block
 
 _AGENT_OUTPUTS_KEY = "__agent_outputs__"
@@ -46,11 +46,24 @@ async def run(input: AgentInput) -> AgentOutput:
             continue
         blocks.extend(_blocks_for_agent(name, out))
         citations.extend(out.citations)
+        # Agents can ship pre-built blocks via structured["extra_blocks"].
+        # This is how, e.g., instrument_starter ships a FormBlock.
+        extras = (out.structured or {}).get("extra_blocks") or []
+        for raw in extras:
+            blk = _coerce_block(raw)
+            if blk is not None:
+                blocks.append(blk)
 
     # Retrieved documents (from search.* layer calls) become Video/List blocks.
     doc_blocks, doc_urls = _blocks_for_documents(input.documents)
     blocks.extend(doc_blocks)
     citations.extend(doc_urls)
+
+    # Crowd sentiment (curated 'what beginners do' picks). Layer call
+    # stashes it under 'crowd_picks'.
+    crowd_block = _crowd_picks_block(input.upstream.get("crowd_picks"))
+    if crowd_block is not None:
+        blocks.append(crowd_block)
 
     if citations:
         blocks.append(CitationsBlock(sources=_dedupe(citations)))
@@ -69,6 +82,44 @@ async def run(input: AgentInput) -> AgentOutput:
 
 # --- helpers --------------------------------------------------------------
 
+_TILT_REASONS: dict[str, dict[str, str]] = {
+    "tailwind": {
+        "bonds": "Falling/stable rates lift existing bond prices — supportive backdrop.",
+        "debt_fund": "Debt funds benefit when rate-cut expectations build or yields stabilise.",
+        "fd": "Higher prevailing deposit rates make new FDs attractive for safety-first money.",
+        "ncd": "Rate environment supports higher fixed coupons from NCD issuers.",
+        "gold": "Risk-off mood, weak rupee, or falling real rates tend to support gold.",
+        "sip": "Volatility plus a stable income backdrop favours long-horizon SIPs (rupee-cost averaging).",
+        "mutual_fund": "Diversified funds benefit from a constructive equity backdrop.",
+        "stock": "Macro is broadly supportive for equities right now.",
+        "etf": "Index ETFs ride the broad-market uptrend in a supportive regime.",
+    },
+    "headwind": {
+        "bonds": "Rising rates push existing bond prices down — unfavourable for fresh long-duration bets.",
+        "debt_fund": "Rising-rate or risk-off pressure can drag debt-fund NAVs.",
+        "small_cap": "Small caps typically suffer first in risk-off or rate-hike cycles.",
+        "mid_cap": "Mid caps face headwinds in tighter liquidity or risk-off regimes.",
+        "international_equity": "Strong rupee, capital controls, or global volatility hurt overseas allocations.",
+        "stock": "Macro currently weighs on broad equity returns — proceed cautiously.",
+        "etf": "Index ETFs track the broad market, which is under pressure right now.",
+        "gold": "Strong dollar or rising real rates tend to weigh on gold.",
+        "fd": "Falling deposit rates erode the appeal of new FDs.",
+    },
+}
+
+_DEFAULT_TILT_TEXT = {
+    "tailwind": "Current macro backdrop is supportive for this instrument.",
+    "headwind": "Current macro backdrop is unfavourable for this instrument.",
+}
+
+
+def _explain_tilt(instrument_key: str, tilt: str) -> str:
+    key = instrument_key.lower().replace(" ", "_")
+    bucket = _TILT_REASONS.get(tilt, {})
+    return bucket.get(key) or _DEFAULT_TILT_TEXT.get(
+        tilt, "Educational only — see the scenario page for context.")
+
+
 def _snapshot_tilts_block(scenario: CurrentScenario | None
                             ) -> TableBlock | None:
     if scenario is None or not scenario.instrument_tilts:
@@ -79,8 +130,9 @@ def _snapshot_tilts_block(scenario: CurrentScenario | None
         return None
     return TableBlock(
         title="Backdrop tilts (refreshed snapshot)",
-        columns=["Instrument", "Tilt"],
-        rows=[[k.replace("_", " "), v] for k, v in non_neutral.items()],
+        columns=["Instrument", "Explanation"],
+        rows=[[k.replace("_", " "), _explain_tilt(k, v)]
+               for k, v in non_neutral.items()],
         note=("Computed periodically against the cached scenario. "
                "Educational only."),
     )
@@ -143,27 +195,49 @@ def _blocks_for_agent(name: str, output: AgentOutput) -> list[Block]:
         rows_source = non_neutral if non_neutral else tilts
         blocks.append(TableBlock(
             title="Instrument tilts (current backdrop)",
-            columns=["Instrument", "Tilt"],
-            rows=[[k.replace("_", " "), v] for k, v in rows_source.items()],
-            note=("'tailwind' = backdrop is supportive; 'headwind' = backdrop "
-                   "is unfavourable; 'neutral' otherwise. Educational only."),
+            columns=["Instrument", "Explanation"],
+            rows=[[k.replace("_", " "), _explain_tilt(k, v)]
+                   for k, v in rows_source.items()],
+            note="Plain-English read on today's macro backdrop. Educational only.",
         ))
 
-    # Recommender output: candidates as a table (if/when wired into a plan).
+    # Recommender output: candidates as a table.
+    # When live data is present, show the quantitative columns. When the
+    # row is from the curated fallback (returns/expense/AUM are None),
+    # collapse to a name/provider/category/summary table that's still useful.
     candidates = structured.get("candidates")
     if isinstance(candidates, list) and candidates:
-        columns = ["Name", "Category", "3y Return", "Expense Ratio", "AUM (Cr)"]
-        rows = [[
-            c.get("name"),
-            c.get("category"),
-            c.get("returns_3y"),
-            c.get("expense_ratio"),
-            c.get("aum_crore"),
-        ] for c in candidates]
+        has_quant = any(
+            (c.get("returns_3y") is not None
+              or c.get("expense_ratio") is not None
+              or c.get("aum_crore") is not None)
+            for c in candidates
+        )
+        if has_quant:
+            columns = ["Name", "Category", "3y Return", "Expense Ratio", "AUM (Cr)"]
+            rows = [[
+                c.get("name"),
+                c.get("category"),
+                c.get("returns_3y"),
+                c.get("expense_ratio"),
+                c.get("aum_crore"),
+            ] for c in candidates]
+        else:
+            columns = ["Name", "Provider", "Category", "Risk", "Why beginners pick this"]
+            rows = [[
+                c.get("name"),
+                c.get("provider"),
+                c.get("category"),
+                c.get("risk_level"),
+                c.get("review_summary"),
+            ] for c in candidates]
         blocks.append(TableBlock(
-            title="Candidates",
+            title="Candidate picks",
             columns=columns,
             rows=rows,
+            note=("Live-data scrape returned no results — these are curated "
+                   "beginner picks for educational reference. Not advice.")
+                  if not has_quant else None,
         ))
 
     # Personalization agent: render projection range as a 3-point bar chart
@@ -286,6 +360,50 @@ def _blocks_for_agent(name: str, output: AgentOutput) -> list[Block]:
     return blocks
 
 
+_BLOCK_KIND_TO_CLS: dict[str, type] = {
+    "narrative": NarrativeBlock,
+    "callout": CalloutBlock,
+    "table": TableBlock,
+    "chart": ChartBlock,
+    "list": ListBlock,
+    "video": VideoBlock,
+    "citations": CitationsBlock,
+    "form": FormBlock,
+}
+
+
+def _coerce_block(raw: Any) -> Block | None:
+    """Turn a dict (from an agent's structured['extra_blocks']) into a typed
+    Block, or pass through if it already is one."""
+    if isinstance(raw, (NarrativeBlock, CalloutBlock, TableBlock, ChartBlock,
+                          ListBlock, VideoBlock, CitationsBlock, FormBlock)):
+        return raw  # type: ignore[return-value]
+    if not isinstance(raw, dict):
+        return None
+    kind = raw.get("kind")
+    cls = _BLOCK_KIND_TO_CLS.get(kind)
+    if cls is None:
+        return None
+    try:
+        return cls(**raw)
+    except Exception:
+        return None
+
+
+def _crowd_picks_block(items: Any) -> ListBlock | None:
+    if not isinstance(items, list) or not items:
+        return None
+    return ListBlock(
+        title="What beginners across the country actually do",
+        items=[{
+            "label": it.get("stat"),
+            "description": it.get("headline"),
+            "source": it.get("source"),
+        } for it in items if isinstance(it, dict)],
+        note="Curated public data — AMFI / CAMS / NSE / ValueResearch. Educational only.",
+    )
+
+
 def _title_for_agent(name: str) -> str | None:
     return {
         "education": "Explanation",
@@ -294,6 +412,7 @@ def _title_for_agent(name: str) -> str | None:
         "personalization": "For your situation",
         "historical": "How it behaved then",
         "brief": "Today's market summary",
+        "instrument_starter": "Your starter plan",
         "not_implemented": None,
     }.get(name)
 

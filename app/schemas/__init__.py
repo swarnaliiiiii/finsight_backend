@@ -12,8 +12,9 @@ Rules enforced architecturally (see .importlinter at repo root):
 """
 from app.schemas.agent_io import AgentInput, AgentOutput
 from app.schemas.assembly import (Block, CalloutBlock, ChartBlock,
-                                     CitationsBlock, ListBlock, NarrativeBlock,
-                                     ResponseEnvelope, TableBlock, VideoBlock)
+                                     CitationsBlock, FormBlock, ListBlock,
+                                     NarrativeBlock, ResponseEnvelope,
+                                     TableBlock, VideoBlock)
 from app.schemas.brief import (BriefItem, BriefSeverity, BriefSourceType,
                                  DailyBrief, Signal)
 from app.schemas.documents import Document
@@ -51,6 +52,7 @@ __all__ = [
     "Event",
     "EventType",
     "Explanation",
+    "FormBlock",
     "HistoricalReport",
     "InstrumentCandidate",
     "InstrumentType",

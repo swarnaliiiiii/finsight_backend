@@ -55,11 +55,17 @@ async def run(input: AgentInput) -> AgentOutput:
     user = input.user
 
     if not candidates:
+        # Should be rare now that the recommender layer always falls back to
+        # a curated list, but kept as a defensive last resort.
         return AgentOutput(
-            narrative=("We couldn't fetch ranked candidates for this query. "
-                        "Try a more specific instrument hint, e.g. 'best "
-                        "large-cap SIP funds'. "
-                        "This is educational information, not advice."),
+            narrative=(
+                "Here's a starting frame: for first-time investors in your "
+                "country, the most common picks are broad-market index funds "
+                "or ETFs (Nifty 50 / S&P 500), one large-cap active fund for "
+                "stability, and a small allocation to gold for diversification. "
+                "Ask a more specific question like 'best large-cap SIP funds' "
+                "or 'gold ETF vs silver ETF' to get a ranked list. "
+                "This is educational information, not advice."),
             disclaimer=_DISCLAIMER,
         )
 

@@ -21,10 +21,51 @@ def _load_kg() -> dict:
         return json.load(f)
 
 
+_ALIASES = {
+    "sips": "sip",
+    "systematic investment plan": "sip",
+    "mf": "mutual_fund",
+    "mfs": "mutual_fund",
+    "mutual funds": "mutual_fund",
+    "mutual fund": "mutual_fund",
+    "stocks": "stock",
+    "shares": "stock",
+    "share": "stock",
+    "equity": "stock",
+    "equities": "stock",
+    "etfs": "etf",
+    "exchange traded fund": "etf",
+    "exchange-traded fund": "etf",
+    "bonds": "bond",
+    "ncds": "ncd",
+    "fds": "fd",
+    "fixed deposit": "fd",
+    "fixed deposits": "fd",
+    "gold etfs": "gold_etf",
+    "gold etf": "gold_etf",
+}
+
+
+def _resolve_entry(kg: dict, raw_term: str):
+    t = raw_term.lower().strip()
+    if not t:
+        return None
+    if t in kg:
+        return kg[t]
+    if t in _ALIASES and _ALIASES[t] in kg:
+        return kg[_ALIASES[t]]
+    underscored = t.replace(" ", "_")
+    if underscored in kg:
+        return kg[underscored]
+    # last-ditch: try first token
+    first = t.split(" ")[0]
+    return kg.get(first)
+
+
 async def explain(term: str, country: str = "IN") -> Explanation | None:
     """Look up a term in the knowledge graph and enrich with live data."""
     kg = _load_kg()
-    entry = kg.get(term.lower())
+    entry = _resolve_entry(kg, term)
     if not entry:
         return None
     entities: list[AffectingEntity] = []

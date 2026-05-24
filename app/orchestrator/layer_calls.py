@@ -28,10 +28,12 @@ from app.layers.memory import (readout as memory_readout, record_activity,
 from app.layers.projection import (allocation_for_profile, monte_carlo_sip,
                                       sip_future_value)
 from app.layers.recommender import (compare_candidates, consensus_fetcher,
+                                       curated_candidates,
                                        enrich as recommender_enrich,
                                        score_candidates)
 from app.layers.scenario import scenario_store
 from app.layers.search import find_videos, vector_search, web_search
+from app.layers.sentiment import crowd_picks_for_instrument
 from app.orchestrator.budget import QueryBudget
 from app.schemas import (HistoricalReport, InstrumentType, Intent,
                           UserContext)
@@ -76,16 +78,64 @@ async def _call_education_explain(ctx: RunContext) -> None:
 
 
 def _guess_term(query: str) -> str | None:
-    """Cheap term extractor for queries like 'what is sip', 'explain etf'."""
+    """Cheap term extractor for queries like 'what is sip', 'explain etf',
+    'how do I start a SIP', 'tell me about gold ETFs'.
+
+    Strategy:
+      1. Strip known leading question-phrase prefixes (longest first).
+      2. From the remainder, strip a few filler words at the start
+         ('a ', 'an ', 'the ', 'i ', 'i ', 'me ', 'how to ', 'about ', etc.).
+      3. Try the remaining phrase as a key, then progressively the first
+         two / first one token(s). The KG is matched against any of those.
+      4. If nothing matches, return the best candidate (single token) so the
+         caller still has something — but it may be unknown to the KG.
+    """
     q = query.lower().strip()
-    for prefix in ("what is a ", "what is an ", "what is ", "what's a ",
-                    "what's an ", "what's ", "explain ", "tell me about ",
-                    "how does ", "how do ", "how to start a ", "how to start "):
+    # Longest prefixes first so "how to start a " wins over "how to ".
+    prefixes = sorted(
+        [
+            "what is a ", "what is an ", "what is ", "what's a ",
+            "what's an ", "what's ", "explain ",
+            "tell me about ", "tell me ", "about ",
+            "how does a ", "how does an ", "how does ",
+            "how do a ", "how do an ", "how do i ", "how do you ", "how do ",
+            "how can i ", "how can you ", "how to start a ", "how to start an ",
+            "how to start ", "how to open a ", "how to open an ", "how to open ",
+            "how to buy a ", "how to buy an ", "how to buy ",
+            "how to invest in a ", "how to invest in an ", "how to invest in ",
+            "how to set up a ", "how to set up ", "how to ",
+            "what are a ", "what are an ", "what are ",
+        ],
+        key=len,
+        reverse=True,
+    )
+    for prefix in prefixes:
         if q.startswith(prefix):
-            tail = q[len(prefix):].strip(" ?.")
-            tail = tail.split(" ")[0]  # first word — works for short FAQs
-            return tail
-    return None
+            q = q[len(prefix):]
+            break
+
+    # Strip light filler at the start of what remains.
+    filler = ("i ", "you ", "we ", "to ", "a ", "an ", "the ", "my ",
+                "start a ", "start an ", "start ", "open a ", "open an ",
+                "open ", "buy a ", "buy an ", "buy ", "invest in a ",
+                "invest in an ", "invest in ", "set up a ", "set up an ",
+                "set up ", "about ")
+    # Iterate until nothing more strips (e.g. "i start a sip" -> "start a sip"
+    # -> "sip").
+    for _ in range(6):
+        changed = False
+        for f in filler:
+            if q.startswith(f):
+                q = q[len(f):]
+                changed = True
+                break
+        if not changed:
+            break
+
+    q = q.strip(" ?.!,;:'\"")
+    if not q:
+        return None
+    return q
 
 
 # --- projection layer-calls ------------------------------------------------
@@ -289,15 +339,25 @@ async def _call_brief_gather(ctx: RunContext) -> None:
 
 # --- recommender layer-calls ----------------------------------------------
 
-# Cheap heuristic so COMPARE_INSTRUMENTS works without a structured field.
-_INSTRUMENT_HINTS = [
-    (InstrumentType.SIP, ("sip",)),
-    (InstrumentType.ETF, ("etf", "etfs")),
-    (InstrumentType.MUTUAL_FUND, ("mutual fund", "mf ", "mutual funds")),
-    (InstrumentType.STOCK, ("stock", "stocks", "share")),
-    (InstrumentType.BOND, ("bond", "g-sec", "gilt")),
-    (InstrumentType.NCD, ("ncd",)),
-    (InstrumentType.FD, ("fixed deposit", " fd ", "fd ")),
+# Cheap heuristic so COMPARE_INSTRUMENTS / INSTRUMENT_STARTER work without a
+# structured field. Order matters: 'gold etf' / 'silver etf' must match BEFORE
+# plain 'etf' so a query like "gold ETF vs silver" resolves to ETF (not SIP).
+_INSTRUMENT_HINTS: list[tuple[InstrumentType, tuple[str, ...]]] = [
+    (InstrumentType.ETF,  ("gold etf", "gold etfs", "silver etf",
+                              "silver etfs", "index fund", "nifty etf",
+                              "etf", "etfs")),
+    (InstrumentType.SIP,  ("sip", "sips", "systematic investment")),
+    (InstrumentType.MUTUAL_FUND, ("mutual fund", "mutual funds", "mf ",
+                                    "elss", "flexi-cap", "flexi cap",
+                                    "large-cap fund", "large cap fund",
+                                    "small-cap fund", "small cap fund")),
+    (InstrumentType.STOCK, ("stock", "stocks", "share", "shares",
+                              "equity", "equities")),
+    (InstrumentType.BOND,  ("bond", "bonds", "g-sec", "gilt", "sgb",
+                              "sovereign gold bond")),
+    (InstrumentType.NCD,   ("ncd", "ncds")),
+    (InstrumentType.FD,    ("fixed deposit", "fixed deposits", " fd ",
+                              "fd ", " fd")),
 ]
 
 
@@ -311,13 +371,29 @@ def _resolve_instrument(ctx: RunContext) -> InstrumentType | None:
     return None
 
 
+def _detect_two_instruments(query: str) -> list[InstrumentType]:
+    """Best-effort: pull all instrument tokens from the query in order of
+    appearance. 'Gold ETF vs Silver ETF' -> [ETF]. 'SIP vs FD' -> [SIP, FD]."""
+    q = " " + query.lower() + " "
+    found: list[InstrumentType] = []
+    for inst, kws in _INSTRUMENT_HINTS:
+        if any(kw in q for kw in kws) and inst not in found:
+            found.append(inst)
+        if len(found) >= 2:
+            break
+    return found
+
+
 async def _call_recommender_consensus(ctx: RunContext) -> None:
     """Fetch consensus candidates for the (instrument, country, category).
-    Stashes the raw list under `candidates`."""
-    inst = _resolve_instrument(ctx)
-    if inst is None:
-        ctx.stash("candidates", [])
-        return
+    Stashes the raw list under `candidates`.
+
+    Order of preference:
+      1. Live scrape (Groww / ValueResearch / Tavily depending on country).
+      2. Curated beginner-pick fallback so the caller is never empty.
+    """
+    inst = _resolve_instrument(ctx) or InstrumentType.SIP
+    results: list = []
     try:
         results = await consensus_fetcher.fetch(
             instrument_type=inst,
@@ -325,8 +401,10 @@ async def _call_recommender_consensus(ctx: RunContext) -> None:
             category=ctx.user.goal,
         )
     except Exception:
-        ctx.stash("candidates", [])
-        return
+        results = []
+    if not results:
+        results = curated_candidates(inst, ctx.user.country)
+    ctx.stash("instrument_type_resolved", inst)
     ctx.stash("candidates", results[:8])
 
 
@@ -357,6 +435,18 @@ async def _call_recommender_compare(ctx: RunContext) -> None:
     if not cs:
         return
     ctx.stash("comparison", compare_candidates(cs[:6]))
+
+
+# --- sentiment (crowd) layer-call -----------------------------------------
+
+async def _call_sentiment_crowd(ctx: RunContext) -> None:
+    """Curated 'what other beginners do' picks for the resolved instrument.
+    Hardcoded for v1 — see app/layers/sentiment/crowd.py."""
+    inst = ctx.get("instrument_type_resolved")
+    if not inst:
+        inst = _resolve_instrument(ctx) or InstrumentType.SIP
+    key = inst.value if isinstance(inst, InstrumentType) else str(inst)
+    ctx.stash("crowd_picks", crowd_picks_for_instrument(key))
 
 
 # --- historical layer-call -------------------------------------------------
@@ -475,5 +565,6 @@ LAYER_CALLS: dict[str, LayerCall] = {
     "recommender.enrich": _call_recommender_enrich,
     "recommender.score": _call_recommender_score,
     "recommender.compare": _call_recommender_compare,
+    "sentiment.crowd": _call_sentiment_crowd,
     "brief.gather": _call_brief_gather,
 }
