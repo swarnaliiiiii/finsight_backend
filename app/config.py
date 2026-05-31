@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # Search
     TAVILY_API_KEY: str = ""
     YOUTUBE_API_KEY: str = ""
+    SERP_API_KEY: str = ""
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://finsight:finsight@postgres:5432/finsight"

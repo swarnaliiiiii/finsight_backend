@@ -48,13 +48,15 @@ async def country_dependency(
 # by the registry to avoid circular imports.
 
 def news_sources_for(country: CountryCode) -> list[str]:
+    # serp_news is appended as the last-resort fallback so the news page is
+    # never empty when primary providers fail or hit rate limits.
     if country == "IN":
-        return ["rss_moneycontrol", "rss_economic_times", "gnews", "marketaux", "tavily"]
+        return ["rss_moneycontrol", "rss_economic_times", "gnews", "marketaux", "tavily", "serp_news"]
     if country == "US":
-        return ["finnhub", "newsapi", "marketaux", "gnews", "tavily"]
+        return ["finnhub", "newsapi", "marketaux", "gnews", "tavily", "serp_news"]
     if country == "UK":
-        return ["newsapi", "marketaux", "gnews", "tavily"]
-    return ["finnhub", "marketaux", "gnews", "tavily"]
+        return ["newsapi", "marketaux", "gnews", "tavily", "serp_news"]
+    return ["finnhub", "marketaux", "gnews", "tavily", "serp_news"]
 
 
 def price_sources_for(country: CountryCode) -> list[str]:

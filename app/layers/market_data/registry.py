@@ -18,6 +18,7 @@ from app.layers.market_data.news.newsapi_source import NewsAPISource
 from app.layers.market_data.news.rss_source import (EconomicTimesRSSSource,
                                           GenericRSSSource,
                                           MoneycontrolRSSSource)
+from app.layers.market_data.news.serp_source import SerpNewsSource
 from app.layers.market_data.news.tavily_source import TavilySource
 from app.layers.market_data.prices.alpha_vantage_source import AlphaVantageSource
 from app.layers.market_data.prices.nse_source import NSESource
@@ -32,7 +33,7 @@ def _registry() -> dict[str, BaseSource]:
         # news
         FinnhubSource(), NewsAPISource(), MarketauxSource(), GNewsSource(),
         MoneycontrolRSSSource(), EconomicTimesRSSSource(), GenericRSSSource(),
-        TavilySource(),
+        TavilySource(), SerpNewsSource(),
         # macro
         FREDSource(), RBISource(), WorldBankSource(),
         # funds
